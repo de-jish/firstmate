@@ -161,9 +161,11 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
-# shellcheck source=bin/fm-wake-lib.sh
-# shellcheck disable=SC1091
-. "$SCRIPT_DIR/fm-wake-lib.sh"
+# fm-wake-lib.sh is sourced by `complete` alone, the one command that locks task
+# metadata and appends a status transfer. It creates this home's state directory
+# at source time, so sourcing it here would make every read-only command - `audit`
+# above all, which a detect-only session start runs - create a directory it must
+# never write. bin/fm-bootstrap.sh's secondmate_sync defers it for the same reason.
 
 DECISION_META_LOCK=
 DECISION_META_LOCK_HELD=0
@@ -513,6 +515,8 @@ command_hold() {
 
 command_complete() {
   local origin=${1:-} meta previous='' supplied='' keys='' key status_file open raw_open key_seen=0 has_meta=0
+  # shellcheck source=bin/fm-wake-lib.sh disable=SC1091
+  . "$SCRIPT_DIR/fm-wake-lib.sh"
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   validate_slug origin-id "$origin"
   shift
