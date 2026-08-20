@@ -76,7 +76,7 @@ Board answers are acted on later under the normal authority rules; this skill's 
 Compose the payload from the same snapshot with the same ranking judgment as the chat digest, plus these board rules:
 
 - A Captain's Call decision key is the FULL hold identity from `decisions_open`; a merge card's key is `merge.<task-id>`; the Charted Next dispatch picker's key is `dispatch.charted`.
-- A destructive, discard, or irreversible decision never takes a key whose answer closes its hold, so it is not composed as a Captain's Call card keyed from `decisions_open`; `AGENTS.md` section 9 owns that rule.
+- A captain-word action, as `AGENTS.md` section 9 defines that class, still gets its Captain's Call card, but keyed so its answer closes no hold and comes back as a `skipped:` key to reconcile rather than under the full hold identity.
 - Decision cards carry agent-authored copy: a short noun-phrase title, one-line `about` and `decide` context rows, and option labels with hints, with the recommended option marked.
 - A board decision card is single-select: it carries one `options` array with no multi-select flag, so `AGENTS.md` section 9's multi-select is not available on a Captain's Call card.
 - Every Captain's Call item and every Underway, Recently Landed, and Charted Next row carries an explicit `repo` field. Fill it from the snapshot and task records wherever known; use null or an empty string only as the deliberate genuinely-no-repo marker, in which case the template may show the internal id. Ids otherwise stay in the payload only as the routing channel, and composed reasons name blockers in plain words.
