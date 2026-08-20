@@ -59,6 +59,12 @@
 # metadata teardown has already removed. An origin that is both torn down and
 # archived is outside both, which is why the strongest tier here is detection at
 # session start rather than a report written after the fact.
+# Both sources also carry the identity's own (origin, decision key) pair, from
+# the inventory that recorded it or from the creation body `hold` wrote, and
+# those two are the whole of the audit's scope. Nothing here re-splits the joined
+# id, and nothing enters the report on tasks-axi's `hold_kind` alone, which any
+# captain-gated thread carries: this report's remediation rewrites a task body,
+# so naming the wrong subject would manufacture a false record.
 #
 # `resolve`, `answer`, and `decline` close active holds; `repair` attests a hold
 # already closed outside this script. All four paths require a non-empty captain
@@ -454,6 +460,26 @@ captain_hold_provenance() {  # <show-output> <origin-id> <decision-key>
   return 1
 }
 
+# The (origin-id, decision-key) pair the creation body itself records, printed
+# tab-separated. This is the only signal that names a decision identity's own
+# origin and key, because `<origin>-decision-<key>` cannot be split back apart
+# when the origin id spells the separator too, and it is written by `hold` alone,
+# so an ordinary captain-kind task carries none of it and this fails.
+creation_body_identity() {  # <body>
+  local body=$1 rest origin key
+  case "$body" in
+    *'Origin: '*'\nDecision key: '*'\nState: awaiting captain decision.'*) : ;;
+    *) return 1 ;;
+  esac
+  rest=${body#*'Origin: '}
+  origin=${rest%%'\n'*}
+  rest=${rest#*'\nDecision key: '}
+  key=${rest%%'\n'*}
+  case "$origin" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  case "$key" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  printf '%s\t%s\n' "$origin" "$key"
+}
+
 command_hold() {
   local origin=${1:-} key=${2:-} title='' reason='' repo='' id show state kind existing_title body
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
@@ -645,10 +671,15 @@ $rows
 EOF
 }
 
-# Decision identities this home already recorded as reviewed. These outlive the
-# backlog listing: the metadata still names the hold after retention archives it
-# out of data/backlog.md, and an archived identity is exactly what verify refuses
-# at that origin's teardown, so naming it early is the same verdict earlier.
+# Decision identities this home already recorded as reviewed, one per line as
+# tab-separated <hold-id>, <origin-id>, <decision-key>. The pair travels with
+# the identity because joining it into an id is not reversible: an origin id may
+# spell the decision separator itself, and re-splitting would then name a
+# different origin and a different decision than the one this home recorded.
+# These outlive the backlog listing: the metadata still names the hold after
+# retention archives it out of data/backlog.md, and an archived identity is
+# exactly what verify refuses at that origin's teardown, so naming it early is
+# the same verdict earlier.
 audit_inventory_identities() {
   local meta origin keys key
   for meta in "$STATE"/*.meta; do
@@ -665,23 +696,41 @@ audit_inventory_identities() {
       case "$key" in
         *[!A-Za-z0-9._-]*) continue ;;
       esac
-      printf '%s-decision-%s\n' "$origin" "$key"
+      printf '%s-decision-%s\t%s\t%s\n' "$origin" "$key" "$origin" "$key"
     done <<EOF
 $(printf '%s\n' "$keys" | tr ',' '\n')
 EOF
   done
 }
 
+# The recorded (origin-id, decision-key) pair for one identity, tab-separated,
+# from the inventory listing above.
+inventory_pair() {  # <inventory> <hold-id>
+  local inventory=$1 id=$2 row
+  while IFS= read -r row; do
+    case "$row" in
+      "$id"$'\t'*) printf '%s' "${row#*$'\t'}"; return 0 ;;
+    esac
+  done <<EOF
+$inventory
+EOF
+  return 1
+}
+
 # One identity's defect line, or nothing when it is healthy or out of scope.
 # Healthy is exactly verify_hold_durable's definition read through the same
 # fields, so this can never report a state verify accepts nor stay quiet about
 # one verify refuses. <recorded> is 1 when this home's own metadata lists the
-# identity as a reviewed decision.
-decision_defect() {  # <hold-id> <recorded>
-  local id=$1 recorded=$2 show state held kind hold_kind body origin key
-  origin=${id%%-decision-*}
-  key=${id#*-decision-}
+# identity as a reviewed decision, and <origin> and <key> are then the pair that
+# metadata recorded; otherwise they are read from the record's own creation body.
+# Neither source re-splits the joined id, so an origin id that spells the
+# decision separator gets one verdict here, from `hold`, and from `repair`.
+decision_defect() {  # <hold-id> <recorded> <origin-id> <decision-key>
+  local id=$1 recorded=$2 origin=$3 key=$4 show state held kind hold_kind body pair
   if ! show=$(task_show "$id"); then
+    # Only the recorded inventory outlives the record itself; a listed candidate
+    # that vanished mid-scan carries no evidence left to place it in scope.
+    [ "$recorded" = 1 ] || return 0
     printf '%s is recorded in %s reviewed decision inventory but is absent from %s/data/backlog.md, which is the same verdict verify gives at teardown; recover the record from the backlog archive or raise the decision again under a new decision key\n' \
       "$id" "$origin" "$FM_HOME"
     return 0
@@ -698,11 +747,18 @@ decision_defect() {  # <hold-id> <recorded>
     return 0
   fi
   # Scope. This ledger owns an identity that this home recorded as a reviewed
-  # decision, or that carries the provenance `hold` writes. An ordinary captain
-  # task whose id merely spells the decision separator is neither, and reporting
-  # it would teach the next agent to skim past the whole report.
-  if [ "$recorded" != 1 ] && ! captain_hold_provenance "$show" "$origin" "$key"; then
-    return 0
+  # decision, or whose own record still carries the creation body `hold` writes.
+  # Both are written by this script alone. tasks-axi's hold_kind is not: AGENTS.md
+  # section 10 prescribes `tasks-axi hold <id> --kind captain` for ANY captain-gated
+  # thread, so scoping on it would pull an ordinary captain thread whose id merely
+  # spells the decision separator into a report whose remediation rewrites its body.
+  # `repair` still reads the wider provenance, because there the identity is the
+  # caller's own argument rather than something this scan decided to name.
+  if [ "$recorded" != 1 ]; then
+    pair=$(creation_body_identity "$body") || return 0
+    origin=${pair%%$'\t'*}
+    key=${pair#*$'\t'}
+    [ "$(hold_id "$origin" "$key")" = "$id" ] || return 0
   fi
   if [ "$kind" != captain ]; then
     printf '%s carries a reviewed captain decision identity but is kind %s, so it cannot hold a captain decision; give that work its own identity\n' \
@@ -724,7 +780,7 @@ decision_defect() {  # <hold-id> <recorded>
 }
 
 command_audit() {
-  local id inventory identities recorded
+  local id inventory identities recorded pair origin key
   [ "$#" -eq 0 ] || { usage >&2; exit 2; }
   # Detect-only, and deliberately silent when the backlog cannot be read at all:
   # bin/fm-bootstrap.sh reports an unusable tasks-axi on its own MISSING line, so
@@ -734,16 +790,20 @@ command_audit() {
   identities=$(
     {
       audit_backlog_identities
-      printf '%s\n' "$inventory"
+      printf '%s\n' "$inventory" | cut -f1
     } | sed '/^$/d' | LC_ALL=C sort -u
   )
   while IFS= read -r id; do
     [ -n "$id" ] || continue
     recorded=0
-    case $'\n'"$inventory"$'\n' in
-      *$'\n'"$id"$'\n'*) recorded=1 ;;
-    esac
-    decision_defect "$id" "$recorded"
+    origin=''
+    key=''
+    if pair=$(inventory_pair "$inventory" "$id"); then
+      recorded=1
+      origin=${pair%%$'\t'*}
+      key=${pair#*$'\t'}
+    fi
+    decision_defect "$id" "$recorded" "$origin" "$key"
   done <<EOF
 $identities
 EOF

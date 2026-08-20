@@ -762,9 +762,17 @@ test_audit_reports_decisions_closed_outside_their_owner() {
 
   # An ordinary captain-gated thread whose id spells the decision separator is
   # not a decision hold, and closing it normally must never enter this report.
+  # Both shapes of that thread are covered, because AGENTS.md section 10 puts
+  # every captain-gated thread through `tasks-axi hold --kind captain` and the
+  # report's own remediation rewrites the body of whatever it names.
   tasks_in "$home" add capt-decision-ui-q2 "Captain thread about the sample UI" \
-    --kind captain --repo sample >/dev/null || fail "could not create the lookalike thread"
-  tasks_in "$home" "done" capt-decision-ui-q2 >/dev/null || fail "could not close the lookalike thread"
+    --kind captain --repo sample >/dev/null || fail "could not create the held lookalike thread"
+  tasks_in "$home" hold capt-decision-ui-q2 --reason "captain UI choice pending" --kind captain >/dev/null \
+    || fail "could not gate the lookalike thread on the captain"
+  tasks_in "$home" "done" capt-decision-ui-q2 >/dev/null || fail "could not close the held lookalike thread"
+  tasks_in "$home" add capt-decision-ui-q3 "Second captain thread about the sample UI" \
+    --kind captain --repo sample >/dev/null || fail "could not create the never-held lookalike thread"
+  tasks_in "$home" "done" capt-decision-ui-q3 >/dev/null || fail "could not close the never-held lookalike thread"
 
   out=$(run_decisions "$home" audit) || fail "audit exited nonzero on a healthy home"
   [ -z "$out" ] || fail "audit reported a defect while every decision was properly held: $out"
@@ -793,6 +801,8 @@ test_audit_reports_decisions_closed_outside_their_owner() {
   assert_contains "$out" "$id-decision-keep is open but no longer actively held" \
     "the audit missed the decision that was released without being closed"
   assert_not_contains "$out" "capt-decision-ui-q2" \
+    "the audit reported an ordinary captain-gated thread as a decision closed outside its owner"
+  assert_not_contains "$out" "capt-decision-ui-q3" \
     "the audit reported an ordinary captain thread that was never a decision hold"
 
   # 3. Session start is where a home that never tears the origin down sees it.
@@ -801,6 +811,8 @@ test_audit_reports_decisions_closed_outside_their_owner() {
     "the session-start report did not carry the audit finding"
   assert_contains "$out" "$id-decision-keep is open but no longer actively held" \
     "the session-start report dropped a finding the audit made"
+  assert_not_contains "$out" "capt-decision-ui-q" \
+    "session start named an ordinary captain-gated thread as a wrongly closed decision"
 
   # 4. hold and verify no longer disagree about one identity.
   if run_decisions "$home" hold "$id" route --title "Choose the sample route" \
@@ -838,6 +850,59 @@ test_audit_reports_decisions_closed_outside_their_owner() {
   out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
   [ -z "$out" ] || fail "session start still reported a defect after every decision was closed: $out"
   pass "captain decisions closed outside their owner are named at session start and clear only when genuinely closed"
+}
+
+# An origin id may spell the decision separator itself - `capt-decision-ui-q2` is
+# a real shape in this repository - and `<origin>-decision-<key>` cannot be split
+# back apart once it is joined. The audit, `hold`, and `repair` must still reach
+# one verdict about that one identity, because the audit's verdict decides whether
+# the agent attests the captain's answer or abandons the decision, and the command
+# it prints has to act on the decision it just named.
+test_audit_hold_and_repair_agree_on_a_nested_decision_origin() {
+  local home origin id out
+  home=$(make_home nested-decision-origin)
+  origin=capt-decision-ui-q2
+  id=$origin-decision-route
+  mkdir -p "$home/data/$origin"
+  tasks_in "$home" add "$origin" "Investigate the sample captain UI" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the nested-separator origin"
+  write_origin_meta "$home" "$origin"
+  printf 'done: report complete\n' > "$home/state/$origin.status"
+  printf '# Sample captain UI review\n\nOne captain choice remains.\n' > "$home/data/$origin/report.md"
+  run_decisions "$home" hold "$origin" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "could not register the nested-separator hold"
+  run_decisions "$home" complete "$origin" route >/dev/null \
+    || fail "completion failed while the nested-separator decision was properly held"
+
+  tasks_in "$home" unhold "$id" >/dev/null || fail "could not reproduce the unhold"
+  tasks_in "$home" "done" "$id" >/dev/null || fail "could not reproduce the unheld close"
+  if run_decisions "$home" verify "$origin" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verification passed a decision closed with no recorded answer"
+  fi
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  assert_contains "$out" "$id was closed outside fm-decision-hold with no captain decision recorded" \
+    "the audit told the agent to abandon a decision that is still attestable"
+  assert_contains "$out" "repair $origin route --decision-file" \
+    "the audit printed a remediation naming a different decision than the one it found"
+
+  if run_decisions "$home" hold "$origin" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample > "$home/rehold.out" 2> "$home/rehold.err"; then
+    fail "hold accepted a nested-separator decision closed with no captain answer"
+  fi
+  assert_grep "repair $origin route --decision-file" "$home/rehold.err" \
+    "hold and audit gave different verdicts about one identity"
+
+  printf 'Captain chose the northern sample route.\n' > "$home/route-decision.txt"
+  out=$(run_decisions "$home" repair "$origin" route --decision-file "$home/route-decision.txt") \
+    || fail "the remediation the audit printed could not attest the decision it named"
+  assert_contains "$out" "repaired: $id" "repair attested a different identity than the audit named"
+  out=$(run_decisions "$home" audit)
+  [ -z "$out" ] || fail "the audit still reported the decision after its own remediation ran: $out"
+  run_decisions "$home" verify "$origin" >/dev/null \
+    || fail "the attested decision did not satisfy the completion gate"
+  pass "audit, hold, and repair give one verdict about an origin id that spells the decision separator"
 }
 
 # The unrouted close paths must not become a way past the gate. An unanswered
@@ -1380,6 +1445,7 @@ test_scout_teardown_always_requires_inventory_verification
 test_declined_decision_closes_without_routed_work
 test_out_of_band_close_is_repairable_before_teardown
 test_audit_reports_decisions_closed_outside_their_owner
+test_audit_hold_and_repair_agree_on_a_nested_decision_origin
 test_unanswered_decision_still_blocks_completion_and_teardown
 test_structured_holds_survive_teardown_and_route_resolution
 test_origin_slug_validation_precedes_path_construction

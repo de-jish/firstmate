@@ -33,7 +33,9 @@ It is a detector and not a gate: it prints one remediation per defect, always ex
 It reads two sources because either alone has a blind spot.
 The backlog listing misses an identity retention has already archived out of `data/backlog.md`, and the home's recorded `decision_keys=` inventories miss an origin whose metadata teardown has already removed.
 An identity that is both archived and torn down is outside both, which is why the detection runs at every session start rather than being written up after the fact.
-An identity is in scope when the home recorded it as a reviewed decision or it carries the provenance `hold` writes, so an ordinary captain-gated thread whose id merely spells the decision separator never enters the report.
+An identity is in scope when the home recorded it in a `decision_keys=` inventory or its own record still carries the creation body `hold` writes, and never on `hold_kind` alone, which `AGENTS.md` section 10 puts on every captain-gated thread.
+The report's remediation rewrites the body of whatever it names, so a wrong subject would not merely cry wolf: it would manufacture a resolution record on an ordinary captain thread whose id merely spells the decision separator.
+Both in-scope sources also carry the identity's own origin id and decision key, because `<origin-id>-decision-<decision-key>` cannot be split back apart when the origin id spells the separator too, and a re-split id would make `audit`, `hold`, and `repair` disagree about one identity.
 
 The `resolve`, `answer`, and `decline` subcommands close active holds, while `repair` attests a hold already closed outside the script.
 All four require a non-empty captain decision file and record the same resolution block in the hold body with the decision digest, routed identities, and a `Resolution mode:` naming the path.
@@ -128,8 +130,9 @@ The cross-origin regression drives a bound source through the real runner and ad
 
 One further regression covers the session-start audit and the wrong-close shapes it exists to name.
 It reproduces all three with the exact commands that caused them - a direct `tasks-axi done`, an `unhold` followed by `done`, and a bare `unhold` - and proves the completion gate refuses, the audit names each defect with the remediation that actually clears it, and the same findings reach a session start as `DECISION_HOLD:` lines.
-It proves `hold` and `verify` now give one verdict about one identity, that an ordinary captain-gated thread whose id merely spells the decision separator never enters the report, and that the report empties only as each decision is closed with the captain's word and not before.
+It proves `hold` and `verify` now give one verdict about one identity, that an ordinary captain-gated thread whose id merely spells the decision separator never enters the report whether it was held for the captain first or never held at all, and that the report empties only as each decision is closed with the captain's word and not before.
 The unheld close is attested by `repair` rather than left permanently unattestable, while a closed captain-kind task the script never created is still refused.
+A companion regression drives one origin id that spells the decision separator itself through the whole cycle and proves `audit`, `hold`, and `repair` reach a single verdict about that identity, so the report's own printed remediation always acts on the decision the report named.
 
 The final verification commands and their exact summarized outputs follow.
 
@@ -140,6 +143,7 @@ ok - non-forced scout teardown always requires durable inventory verification
 ok - a declined decision closes with a recorded answer and no routed work
 ok - a decision closed outside the script is repairable and then clears teardown
 ok - captain decisions closed outside their owner are named at session start and clear only when genuinely closed
+ok - audit, hold, and repair give one verdict about an origin id that spells the decision separator
 ok - an unanswered decision still blocks completion and resists both unrouted close paths
 ok - captain holds are idempotent, distinct, teardown-safe, Bearings-visible, and durably routed before close
 ok - completion and verification validate origins before constructing paths

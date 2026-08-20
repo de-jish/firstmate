@@ -85,9 +85,22 @@ Each of these is a way of appearing to close the loop without closing it.
 - A guard whose test asserts the guard's own code path rather than the original failure.
 - Fixing the instance and deferring the prevention.
 - Treating the captain noticing as the correction, rather than as evidence the loop was missing.
+- Shipping a guard whose printed remediation is destructive when its scope is wrong.
 
-The last one is the most expensive, because it hides the real defect.
+The captain-noticing one is the most expensive, because it hides the real defect.
 The captain noticing means detection was absent, so the prevention owed is detection, not an apology and a fixed instance.
+
+The scope one is the way this loop turns against itself.
+A detector that names the wrong subject does not merely cry wolf.
+If the remediation it prints mutates state, a wrong subject means the guard manufactures a false record that carries the authority of a correction, which is the exact harm this loop exists to prevent.
+The session-start captain-decision audit in `bin/fm-decision-hold.sh` is the worked example: its first version admitted any identity carrying tasks-axi's `hold_kind: captain`, which `AGENTS.md` section 10 prescribes for every captain-gated thread, so an ordinary captain thread whose id merely spelled `-decision-` was reported as a decision closed without an answer, and the `repair` command the report printed then wrote a fabricated resolution block onto that unrelated thread.
+Two checks follow from it.
+Before shipping a guard, ask what its printed remediation does when the scope is wrong, and scope on signals the guard's own owner writes rather than on ones any neighboring workflow also writes.
+Then prove the scope on the nearest legitimate lookalike, not on the failing case alone: a guard proven only against the mistake it was written for has been shown to fire, never shown to hold its edge.
+
+A new guard's first version also gets checked against the contracts the repository already enforces, because a guard is new code in an old system and inherits every rule that system already has.
+The same audit's first version wrote to the home's state directory on a detect-only session start, which the repository's own harness test refuses, and it was the second guard that day to break that contract.
+A contract two guards broke in one day is one the next guard will break too unless its author goes looking for it.
 
 ## Boundary
 
