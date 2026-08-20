@@ -39,7 +39,7 @@ Give the captain a concise session-only recap without gathering fresh state.
    Include every visibly supported open decision once, and deduplicate by the decision's substance when the ordinary interval recap already represents it or its wording differs.
 6. The normal recap branch is session-history-only, apart from the step 0 helm check.
    Do not call Bearings, shell commands, fleet snapshots, status readers, GitHub or browser APIs, tools, or file reads or writes.
-   The only other exceptions to that list are the captain-facing question surface step 8 presents its decisions through, the mandatory `harness-adapters` load that selects it, and the `state/.afk` presence and supervision-status reads that selection needs; every other item in the list stays banned.
+   The only other exception to that list is whatever selecting and presenting the captain-facing question surface step 8 uses requires, as `harness-adapters` defines it; every other item in the list stays banned.
    Create no report, persist nothing, and do not guess current live state beyond the last visible event.
 7. If no ordinary events occurred after the previous captain message but an older visibly open decision exists, report that decision instead of claiming nothing happened.
    If neither ordinary events nor visibly open decisions exist, say directly in one sentence that nothing happened after the previous captain message.
@@ -48,7 +48,7 @@ Give the captain a concise session-only recap without gathering fresh state.
    Make clear that impact ordering is the first mate's judgment rather than a mechanical score.
    Give enough escalation-quality context to decide easily, in the structured-question form `AGENTS.md` section 9 requires.
 9. When the captain answers the presented decision, present the next highest-impact decision from that existing inventory that this walk has not already presented and that no later visible response has since closed under step 5's test, in the same form.
-   Continue one decision at a time until this walk has presented each of them once, without starting this flow when the inventory is empty.
+   Continue one decision at a time until no decision in that inventory still satisfies that selection, without starting this flow when the inventory is empty.
 
 The current `/ahoy` message is outside the recap interval.
 A previous `/ahoy` is a real captain message and may be the next interval boundary.

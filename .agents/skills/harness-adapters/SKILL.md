@@ -110,12 +110,12 @@ When changing any primary watcher adapter, update `docs/supervision-protocols/`,
 
 ## Structured captain questions
 
-`AGENTS.md` section 9 requires every decision that belongs to the captain to be put as a structured question carrying its concrete options, a stated recommendation with its reason, and multi-select whenever the options are not mutually exclusive.
+`AGENTS.md` section 9 requires every decision that belongs to the captain to be put as a structured question in the form it specifies.
 Section 9 owns that requirement and this section owns only how a harness presents one.
 When a harness presents the question it is FIRSTMATE'S OWN primary harness (`bin/fm-harness.sh` with no argument), never the crew or secondmate harness, so the applicable row is the primary's.
-A native structured-question surface blocks the turn until the captain answers, so use one only when the captain is present and supervision is not needed.
+A native structured-question surface blocks the turn until the captain answers, so use a surface that blocks the turn only while `state/.afk` is absent and supervision is not needed.
 Read presence off `state/.afk` rather than judging it: while that durable away-mode flag exists the captain is away and the daemon owns supervision, so a blocking prompt would strand an injected escalation behind a question nobody is there to answer.
-While `state/.afk` exists, and on any turn while supervision is needed, do not put the question through a surface that blocks the turn; a non-blocking surface and the numbered-list fallback below both leave the turn free to end, and while `state/.afk` is absent, ending it lets the turn-end arm re-arm the watcher so no wake sits unprocessed behind an open question.
+A non-blocking surface and the numbered-list fallback below both leave the turn free to end, and while `state/.afk` is absent, ending it lets the turn-end arm re-arm the watcher so no wake sits unprocessed behind an open question.
 
 | Harness | Native structured-question surface |
 |---|---|
