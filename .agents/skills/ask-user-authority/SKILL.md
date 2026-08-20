@@ -35,7 +35,7 @@ It stops at the finding, routes the decision to firstmate, and applies only the 
 
 ## Captain-facing escalation
 
-State all five of these elements in one concise, evidence-first escalation:
+State all five of these elements in one concise, evidence-first escalation, put in the structured-question form `AGENTS.md` section 9 requires:
 
 1. The original requirement or accepted task criterion.
 2. The proposed product or engineering contract expansion.
