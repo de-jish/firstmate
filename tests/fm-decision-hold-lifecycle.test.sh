@@ -724,6 +724,122 @@ test_out_of_band_close_is_repairable_before_teardown() {
   pass "a decision closed outside the script is repairable and then clears teardown"
 }
 
+# Session-start bootstrap, scoped to this fixture home and kept local: the
+# DECISION_HOLD lines are the surface a real session actually reads.
+run_home_bootstrap() {  # <home>
+  local home=$1
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_CONFIG_OVERRIDE="$home/config" FM_BOOTSTRAP_DETECT_ONLY=1 \
+    FM_BOOTSTRAP_NETWORK=skip "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
+}
+
+# The incident, generalized: captain decisions were closed with `tasks-axi done`
+# and `tasks-axi unhold` instead of their owner, and it surfaced only because one
+# scout teardown happened to run its gate. A home that never tore that scout down
+# was wrong and did not know. This case reproduces all three wrong-close shapes,
+# proves each is named at session start, proves `hold` and `verify` now give the
+# same verdict about the same identity, proves an ordinary captain thread whose id
+# merely spells the separator is left alone, and proves the report empties only as
+# each decision is genuinely closed with the captain's word.
+test_audit_reports_decisions_closed_outside_their_owner() {
+  local home id key out
+  home=$(make_home audit-outside-owner)
+  id=sample-audit-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample audit" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the audit origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample audit review\n\nThree captain choices remain.\n' > "$home/data/$id/report.md"
+  for key in route shape keep; do
+    run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+      --reason "captain $key choice pending" --repo sample >/dev/null \
+      || fail "could not register the $key hold"
+  done
+  run_decisions "$home" complete "$id" route shape keep >/dev/null \
+    || fail "completion failed while every decision was still properly held"
+
+  # An ordinary captain-gated thread whose id spells the decision separator is
+  # not a decision hold, and closing it normally must never enter this report.
+  tasks_in "$home" add capt-decision-ui-q2 "Captain thread about the sample UI" \
+    --kind captain --repo sample >/dev/null || fail "could not create the lookalike thread"
+  tasks_in "$home" "done" capt-decision-ui-q2 >/dev/null || fail "could not close the lookalike thread"
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero on a healthy home"
+  [ -z "$out" ] || fail "audit reported a defect while every decision was properly held: $out"
+
+  # 1. Reproduce all three wrong-close shapes with the exact commands used.
+  tasks_in "$home" "done" "$id-decision-route" >/dev/null || fail "could not reproduce the direct close"
+  tasks_in "$home" unhold "$id-decision-shape" >/dev/null || fail "could not reproduce the unhold"
+  tasks_in "$home" "done" "$id-decision-shape" >/dev/null || fail "could not reproduce the unheld close"
+  tasks_in "$home" unhold "$id-decision-keep" >/dev/null || fail "could not reproduce the bare unhold"
+  assert_no_grep "Resolution recorded by fm-decision-hold" "$home/data/backlog.md" \
+    "the reproduced closes must leave no durable resolution record"
+  if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verification passed decisions closed with no recorded answer"
+  fi
+
+  # 2. The audit names each one, with the remediation that actually clears it.
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero on a defective home"
+  assert_contains "$out" "$id-decision-route was closed outside fm-decision-hold" \
+    "the audit missed the decision closed with a direct done"
+  assert_contains "$out" "repair $id route --decision-file" \
+    "the audit did not print the attestation command for the direct close"
+  assert_contains "$out" "$id-decision-shape was closed outside fm-decision-hold" \
+    "the audit missed the decision that was unheld before it was closed"
+  assert_contains "$out" "repair $id shape --decision-file" \
+    "unholding a decision left it permanently unattestable"
+  assert_contains "$out" "$id-decision-keep is open but no longer actively held" \
+    "the audit missed the decision that was released without being closed"
+  assert_not_contains "$out" "capt-decision-ui-q2" \
+    "the audit reported an ordinary captain thread that was never a decision hold"
+
+  # 3. Session start is where a home that never tears the origin down sees it.
+  out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
+  assert_contains "$out" "$id-decision-route was closed outside fm-decision-hold" \
+    "the session-start report did not carry the audit finding"
+  assert_contains "$out" "$id-decision-keep is open but no longer actively held" \
+    "the session-start report dropped a finding the audit made"
+
+  # 4. hold and verify no longer disagree about one identity.
+  if run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample > "$home/rehold.out" 2> "$home/rehold.err"; then
+    fail "hold accepted a decision identity that was closed with no captain answer"
+  fi
+  assert_grep "was closed outside fm-decision-hold" "$home/rehold.err" \
+    "hold still called a wrongly closed decision durably resolved"
+  assert_no_grep "already durably resolved" "$home/rehold.err" \
+    "hold contradicted verify about the same identity"
+
+  # 5. Revert: close each decision the way its owner requires, and the report
+  #    empties exactly as that happens - never before.
+  printf 'Captain chose the northern sample route.\n' > "$home/route-decision.txt"
+  run_decisions "$home" repair "$id" route --decision-file "$home/route-decision.txt" >/dev/null \
+    || fail "repair could not attest the directly closed decision"
+  out=$(run_decisions "$home" audit)
+  assert_not_contains "$out" "$id-decision-route" "the repaired decision stayed in the report"
+  assert_contains "$out" "$id-decision-shape" "repairing one decision cleared another"
+
+  printf 'Captain chose the round sample shape.\n' > "$home/shape-decision.txt"
+  run_decisions "$home" repair "$id" shape --decision-file "$home/shape-decision.txt" >/dev/null \
+    || fail "repair could not attest the decision that was unheld before it was closed"
+  run_decisions "$home" hold "$id" keep --title "Choose the sample keep" \
+    --reason "captain keep choice pending" --repo sample >/dev/null \
+    || fail "a released decision could not be re-activated"
+  printf 'Captain chose to keep the sample.\n' > "$home/keep-decision.txt"
+  run_decisions "$home" answer "$id" keep --decision-file "$home/keep-decision.txt" >/dev/null \
+    || fail "the re-activated decision could not be answered"
+
+  out=$(run_decisions "$home" audit)
+  [ -z "$out" ] || fail "the audit still reported a defect after every decision was closed properly: $out"
+  run_decisions "$home" verify "$id" >/dev/null \
+    || fail "the repaired decisions did not satisfy the completion gate"
+  out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
+  [ -z "$out" ] || fail "session start still reported a defect after every decision was closed: $out"
+  pass "captain decisions closed outside their owner are named at session start and clear only when genuinely closed"
+}
+
 # The unrouted close paths must not become a way past the gate. An unanswered
 # decision keeps blocking cleanup, and neither new path can manufacture an answer.
 test_unanswered_decision_still_blocks_completion_and_teardown() {
@@ -1263,6 +1379,7 @@ test_uninventoried_report_decision_refuses_completion
 test_scout_teardown_always_requires_inventory_verification
 test_declined_decision_closes_without_routed_work
 test_out_of_band_close_is_repairable_before_teardown
+test_audit_reports_decisions_closed_outside_their_owner
 test_unanswered_decision_still_blocks_completion_and_teardown
 test_structured_holds_survive_teardown_and_route_resolution
 test_origin_slug_validation_precedes_path_construction

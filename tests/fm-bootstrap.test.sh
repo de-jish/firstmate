@@ -1055,7 +1055,12 @@ SH
     FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
     FM_TASKS_AXI_COMPATIBLE=1 "$ROOT/bin/fm-bootstrap.sh")
   assert_not_contains "$out" "MISSING: tasks-axi" "the handed-in verdict was ignored"
-  [ ! -s "$log" ] || fail "the handed-in verdict did not save the probe: $(cat "$log")"
+  # The probe is the three calls the handoff exists to save. Bootstrap also reads
+  # the backlog for its own captain-decision diagnostics, so pin the absence of
+  # those probe calls rather than the absence of every tasks-axi invocation.
+  assert_no_grep '--version' "$log" "the handed-in verdict did not save the version probe"
+  assert_no_grep 'update --help' "$log" "the handed-in verdict did not save the archive-body probe"
+  assert_no_grep 'mv --help' "$log" "the handed-in verdict did not save the multi-ID probe"
 
   # A malformed value is not a verdict.
   : > "$log"
@@ -1148,6 +1153,75 @@ ROWS
   pass "bootstrap validates crew-dispatch.json and reports malformed or unverified configs"
 }
 
+# --- shallow-checkout guard --------------------------------------------------
+
+run_shallow_bootstrap() {  # <root> [extra env assignments...]
+  local root=$1
+  shift
+  env FM_ROOT_OVERRIDE="$root" FM_HOME="$root" FM_BOOTSTRAP_NETWORK=skip "$@" \
+    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null | grep '^SHALLOW:' || true
+}
+
+# The incident: the firstmate checkout was a depth-1 clone. Everything looked
+# healthy until a validation push was rejected with "shallow update not allowed",
+# deep inside a pipeline run, in a worktree whose occupant could not deepen its
+# parent checkout. This case reproduces THAT push refusal first, so the guard is
+# pinned to the condition that actually breaks validation rather than to its own
+# code path, then shows the printed remediation clearing both.
+test_bootstrap_shallow_checkout_line() {
+  local case_dir src origin shallow out
+  local git_id=(-c user.name='Firstmate Tests' -c user.email='tests@example.invalid')
+  case_dir="$TMP_ROOT/shallow-checkout"
+  src="$case_dir/src"
+  origin="$case_dir/origin.git"
+  shallow="$case_dir/shallow"
+  mkdir -p "$case_dir"
+  fm_git_init_commit "$src"
+  git -C "$src" "${git_id[@]}" commit -q --allow-empty -m second
+  git clone --quiet --bare "$src" "$origin"
+  git clone --quiet --depth 1 "file://$origin" "$shallow"
+  [ "$(git -C "$shallow" rev-parse --is-shallow-repository)" = true ] \
+    || fail "the shallow fixture is not actually shallow"
+
+  # 1. Reproduce the original failure.
+  git init -q --bare "$case_dir/receiver-before.git"
+  git -C "$shallow" checkout -q -b fm/shallow-probe
+  git -C "$shallow" "${git_id[@]}" commit -q --allow-empty -m work
+  out=$(git -C "$shallow" push "file://$case_dir/receiver-before.git" fm/shallow-probe 2>&1) \
+    && fail "the push failure this guard exists for did not reproduce"
+  assert_contains "$out" "shallow update not allowed" \
+    "the reproduced failure was not the one the guard is written for"
+
+  # 2. The guard catches it at session start, before any work depends on it.
+  out=$(run_shallow_bootstrap "$shallow")
+  assert_contains "$out" "shallow clone" "bootstrap stayed silent on a shallow checkout"
+  assert_contains "$out" "shallow update not allowed" \
+    "the SHALLOW line did not name the failure it prevents"
+  assert_contains "$out" "git -C $shallow fetch --unshallow" \
+    "the SHALLOW line lacked its deepening remediation"
+
+  # 3. Deepening the checkout is a repair, so a lock-refused session keeps the
+  #    alarm and hands the repair to the session that owns it.
+  out=$(run_shallow_bootstrap "$shallow" FM_BOOTSTRAP_DETECT_ONLY=1)
+  assert_contains "$out" "shallow clone" "read-only bootstrap dropped the shallow alarm"
+  assert_contains "$out" "leave the deepening fetch to the session holding the fleet lock" \
+    "read-only bootstrap did not explain repair ownership"
+  assert_not_contains "$out" "fetch --unshallow" \
+    "read-only bootstrap printed a state-changing repair command"
+  out=$(run_shallow_bootstrap "$shallow" FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_LOCKED=1)
+  assert_contains "$out" "git -C $shallow fetch --unshallow" \
+    "a locked detect-only session lost the repair command it owns"
+
+  # 4. Revert: run the printed remediation and both the failure and the line go.
+  git -C "$shallow" fetch --quiet --unshallow origin
+  git init -q --bare "$case_dir/receiver-after.git"
+  git -C "$shallow" push --quiet "file://$case_dir/receiver-after.git" fm/shallow-probe \
+    || fail "the deepened checkout still could not complete the validation push"
+  out=$(run_shallow_bootstrap "$shallow")
+  [ -z "$out" ] || fail "bootstrap kept alarming after the checkout was deepened: $out"
+  pass "fm-bootstrap: the SHALLOW line fires on the checkout state that breaks validation pushes and clears with the fetch it prints"
+}
+
 test_bootstrap_reporting
 test_no_mistakes_min_version
 test_gh_axi_min_version
@@ -1176,3 +1250,4 @@ test_network_phases_record_per_step_elapsed_times
 test_tasks_axi_verdict_handoff_is_consumed_once
 test_crew_dispatch_active_rules_are_verbose_bootstrap_info
 test_crew_dispatch_validation
+test_bootstrap_shallow_checkout_line

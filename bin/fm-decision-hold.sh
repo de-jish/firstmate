@@ -22,6 +22,7 @@
 #     --title <title> --reason <reason> [--repo <repo>]
 #   fm-decision-hold.sh complete <origin-id> (--none | <decision-key>...)
 #   fm-decision-hold.sh verify <origin-id>
+#   fm-decision-hold.sh audit
 #   fm-decision-hold.sh resolve <origin-id> <decision-key> \
 #     --decision-file <path> --routed-to <task-id> [--routed-to <task-id>...]
 #   fm-decision-hold.sh answer <origin-id> <decision-key> --decision-file <path>
@@ -39,6 +40,25 @@
 # complete against the surviving report and holds without recreating task state.
 # `verify` is read-only and is called by scout teardown so teardown cannot erase a
 # source before this gate has succeeded.
+#
+# `audit` is the fleet-wide read-only counterpart to `verify`, and it exists
+# because `verify` only ever runs at one origin's own teardown: a home that never
+# tears that origin down was wrong and did not know. It reports every captain
+# decision identity in this home that is neither actively held nor durably
+# resolved, reading the same fields `verify` reads, so the two can never disagree
+# about one identity. `hold` reads that same signal before refusing to reuse a
+# closed identity, so a hold closed without its resolution record is named as
+# exactly that rather than reported as already resolved.
+# `audit` is a detector and not a gate: it prints one remediation line per defect,
+# always exits 0, and prints nothing at all when tasks-axi cannot be read, because
+# bin/fm-bootstrap.sh reports an unusable tasks-axi on its own line and prefixes
+# each of these findings as a session-start DECISION_HOLD line.
+# It scans two sources because either alone has a blind spot: the backlog listing
+# misses an identity that retention has already archived out of data/backlog.md,
+# and this home's recorded `decision_keys=` inventories miss an origin whose
+# metadata teardown has already removed. An origin that is both torn down and
+# archived is outside both, which is why the strongest tier here is detection at
+# session start rather than a report written after the fact.
 #
 # `resolve`, `answer`, and `decline` close active holds; `repair` attests a hold
 # already closed outside this script. All four paths require a non-empty captain
@@ -120,6 +140,13 @@
 # blocking teardown until `resolve` or `decline` closes it with the captain's word.
 # It also refuses an identity that does not carry surviving captain-hold
 # provenance, so an ordinary captain-kind task cannot be repaired into a decision.
+# Provenance is two signals, because an out-of-band close can erase either one on
+# its own: tasks-axi's `hold_kind`, which survives `done` but not `unhold`, and
+# the creation body `hold` itself writes, which survives `unhold`. Both are
+# written only by `hold`, so an identity this script never created still carries
+# neither and is still refused; the widened evidence base is what keeps a hold
+# that was unheld out of band from becoming permanently unattestable, and with it
+# permanently unable to pass its origin's completion gate.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -400,6 +427,31 @@ command_id() {
   hold_id "$1" "$2"
 }
 
+# The body `hold` writes when it creates a captain decision identity. Factored so
+# the creation record and the provenance check that reads it can never drift.
+creation_body() {  # <origin-id> <decision-key>
+  printf 'Origin: %s\nDecision key: %s\nState: awaiting captain decision.' "$1" "$2"
+}
+
+# Surviving proof that this identity really was a captain hold rather than an
+# ordinary captain-kind task. Two signals, because a close can erase either one
+# alone and both are written only by this script's own `hold`:
+#   - tasks-axi's hold_kind, which survives `done` but NOT `unhold`.
+#   - the creation body above, which survives `unhold` but not a later rewrite.
+# Widening the evidence base does not widen the gate: a captain-kind task this
+# script never created carries neither signal, so `repair` still refuses it.
+captain_hold_provenance() {  # <show-output> <origin-id> <decision-key>
+  local show=$1 origin=$2 key=$3 body
+  [ "$(show_field "$show" hold_kind)" = captain ] && return 0
+  body=$(show_field "$show" body)
+  # tasks-axi renders a multi-line body with escaped newlines, so compare against
+  # the same rendering rather than reconstructing the field boundaries here.
+  case "$body" in
+    *"Origin: $origin"*"Decision key: $key"*"State: awaiting captain decision."*) return 0 ;;
+  esac
+  return 1
+}
+
 command_hold() {
   local origin=${1:-} key=${2:-} title='' reason='' repo='' id show state kind existing_title body
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
@@ -425,8 +477,21 @@ command_hold() {
     state=$(show_field "$show" state)
     kind=$(show_field "$show" kind)
     existing_title=$(show_field "$show" title)
-    [ "$state" != "done" ] || fail "captain decision $id is already durably resolved; use a new decision key for a new decision"
     [ "$kind" = captain ] || fail "existing backlog identity $id is not kind captain"
+    # A closed identity is "already resolved" only on the signal verify reads.
+    # Reading state alone once let this command call a hold closed outside its
+    # owner durably resolved while verify called the same identity neither held
+    # nor resolved, and that contradiction is what made the wrong close look
+    # finished. Both refusals stand; only the diagnosis is now true.
+    if [ "$state" = "done" ]; then
+      body=$(show_field "$show" body)
+      if body_has_resolution_record "$body"; then
+        fail "captain decision $id is already durably resolved; use a new decision key for a new decision"
+      fi
+      captain_hold_provenance "$show" "$origin" "$key" \
+        || fail "captain decision $id was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it; raise the decision again under a new decision key"
+      fail "captain decision $id was closed outside fm-decision-hold with no captain decision recorded; attest the captain's answer with: fm-decision-hold.sh repair $origin $key --decision-file <path>"
+    fi
     [ "$existing_title" = "$title" ] || fail "existing captain hold $id has a different title"
   else
     if [ -z "$repo" ] && [ -f "$STATE/$origin.meta" ]; then
@@ -436,7 +501,7 @@ command_hold() {
     fi
     [ -n "$repo" ] || repo=firstmate
     validate_one_line repo "$repo"
-    body=$(printf 'Origin: %s\nDecision key: %s\nState: awaiting captain decision.' "$origin" "$key")
+    body=$(creation_body "$origin" "$key")
     tasks_axi add "$id" "$title" --kind captain --repo "$repo" --body "$body" >/dev/null \
       || fail "could not create captain decision item $id"
   fi
@@ -552,6 +617,132 @@ EOF
 $open
 EOF
   printf 'verified: %s unresolved-decision inventory\n' "$origin"
+}
+
+# Captain-kind backlog identities that carry the decision-hold separator. The
+# listing is only a cheap prefilter whose first field is always an unquoted id;
+# every candidate is confirmed against its own record before it is reported.
+audit_backlog_identities() {
+  local rows row candidate
+  rows=$(tasks_axi list --kind captain 2>/dev/null) || return 0
+  while IFS= read -r row; do
+    candidate=${row%%,*}
+    candidate=${candidate// /}
+    case "$candidate" in
+      *-decision-*) : ;;
+      *) continue ;;
+    esac
+    case "$candidate" in
+      *[!A-Za-z0-9._-]*) continue ;;
+    esac
+    printf '%s\n' "$candidate"
+  done <<EOF
+$rows
+EOF
+}
+
+# Decision identities this home already recorded as reviewed. These outlive the
+# backlog listing: the metadata still names the hold after retention archives it
+# out of data/backlog.md, and an archived identity is exactly what verify refuses
+# at that origin's teardown, so naming it early is the same verdict earlier.
+audit_inventory_identities() {
+  local meta origin keys key
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    origin=${meta##*/}
+    origin=${origin%.meta}
+    case "$origin" in
+      ''|*[!A-Za-z0-9._-]*) continue ;;
+    esac
+    keys=$(meta_value "$meta" decision_keys)
+    [ -n "$keys" ] || continue
+    while IFS= read -r key; do
+      [ -n "$key" ] || continue
+      case "$key" in
+        *[!A-Za-z0-9._-]*) continue ;;
+      esac
+      printf '%s-decision-%s\n' "$origin" "$key"
+    done <<EOF
+$(printf '%s\n' "$keys" | tr ',' '\n')
+EOF
+  done
+}
+
+# One identity's defect line, or nothing when it is healthy or out of scope.
+# Healthy is exactly verify_hold_durable's definition read through the same
+# fields, so this can never report a state verify accepts nor stay quiet about
+# one verify refuses. <recorded> is 1 when this home's own metadata lists the
+# identity as a reviewed decision.
+decision_defect() {  # <hold-id> <recorded>
+  local id=$1 recorded=$2 show state held kind hold_kind body origin key
+  origin=${id%%-decision-*}
+  key=${id#*-decision-}
+  if ! show=$(task_show "$id"); then
+    printf '%s is recorded in %s reviewed decision inventory but is absent from %s/data/backlog.md, which is the same verdict verify gives at teardown; recover the record from the backlog archive or raise the decision again under a new decision key\n' \
+      "$id" "$origin" "$FM_HOME"
+    return 0
+  fi
+  state=$(show_field "$show" state)
+  held=$(show_field "$show" held)
+  kind=$(show_field "$show" kind)
+  hold_kind=$(show_field "$show" hold_kind)
+  body=$(show_field "$show" body)
+  if [ "$state" = queued ] && [ "$held" = yes ] && [ "$kind" = captain ] && [ "$hold_kind" = captain ]; then
+    return 0
+  fi
+  if [ "$state" = "done" ] && [ "$kind" = captain ] && body_has_resolution_record "$body"; then
+    return 0
+  fi
+  # Scope. This ledger owns an identity that this home recorded as a reviewed
+  # decision, or that carries the provenance `hold` writes. An ordinary captain
+  # task whose id merely spells the decision separator is neither, and reporting
+  # it would teach the next agent to skim past the whole report.
+  if [ "$recorded" != 1 ] && ! captain_hold_provenance "$show" "$origin" "$key"; then
+    return 0
+  fi
+  if [ "$kind" != captain ]; then
+    printf '%s carries a reviewed captain decision identity but is kind %s, so it cannot hold a captain decision; give that work its own identity\n' \
+      "$id" "${kind:--}"
+    return 0
+  fi
+  if [ "$state" = "done" ]; then
+    if captain_hold_provenance "$show" "$origin" "$key"; then
+      printf '%s was closed outside fm-decision-hold with no captain decision recorded; attest the captain answer with: fm-decision-hold.sh repair %s %s --decision-file <path>\n' \
+        "$id" "$origin" "$key"
+    else
+      printf '%s was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it; raise the decision again under a new decision key\n' \
+        "$id"
+    fi
+    return 0
+  fi
+  printf '%s is open but no longer actively held (state=%s held=%s), so it neither blocks work nor records an answer; re-activate it with fm-decision-hold.sh hold before closing it with the captain word\n' \
+    "$id" "${state:--}" "${held:--}"
+}
+
+command_audit() {
+  local id inventory identities recorded
+  [ "$#" -eq 0 ] || { usage >&2; exit 2; }
+  # Detect-only, and deliberately silent when the backlog cannot be read at all:
+  # bin/fm-bootstrap.sh reports an unusable tasks-axi on its own MISSING line, so
+  # this command never becomes a second place that discovers a missing tool.
+  fm_tasks_axi_compatible || return 0
+  inventory=$(audit_inventory_identities | sed '/^$/d' | LC_ALL=C sort -u)
+  identities=$(
+    {
+      audit_backlog_identities
+      printf '%s\n' "$inventory"
+    } | sed '/^$/d' | LC_ALL=C sort -u
+  )
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    recorded=0
+    case $'\n'"$inventory"$'\n' in
+      *$'\n'"$id"$'\n'*) recorded=1 ;;
+    esac
+    decision_defect "$id" "$recorded"
+  done <<EOF
+$identities
+EOF
 }
 
 command_resolve() {
@@ -847,7 +1038,7 @@ command_decline() {
 }
 
 command_repair() {
-  local origin=${1:-} key=${2:-} decision_file id body show state kind hold_kind hold_body
+  local origin=${1:-} key=${2:-} decision_file id body show state kind hold_body
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   shift 2
   decision_file=$(parse_decision_only_flags "$@") || exit 2
@@ -859,19 +1050,19 @@ command_repair() {
   show=$(task_show "$id") || fail "captain decision $id is absent from $FM_HOME/data/backlog.md"
   kind=$(show_field "$show" kind)
   [ "$kind" = captain ] || fail "backlog item $id is not kind captain"
-  # tasks-axi keeps hold_kind after a close, so it is the surviving proof that
-  # this identity really was a captain hold rather than an ordinary captain-kind
-  # task that was never held for the captain at all.
-  hold_kind=$(show_field "$show" hold_kind)
-  [ "$hold_kind" = captain ] \
-    || fail "backlog item $id was never held for the captain; repair records a captain decision only on a captain hold"
   state=$(show_field "$show" state)
   hold_body=$(show_field "$show" body)
+  # The already-repaired retry is settled first, because a successful repair
+  # replaces the creation body that carried this identity's provenance. Reading
+  # provenance ahead of it would make a repair idempotent only for the holds that
+  # still had their hold_kind, which is exactly the shape repair exists for.
   if [ "$state" = "done" ] && body_has_resolution_record "$hold_body"; then
     verify_resolution_identity "$id" "$hold_body" "$DECISION_DIGEST" "$ROUTED_NONE"
     printf 'repaired: %s\n' "$id"
     return 0
   fi
+  captain_hold_provenance "$show" "$origin" "$key" \
+    || fail "backlog item $id was never held for the captain; repair records a captain decision only on a captain hold"
   [ "$state" = "done" ] \
     || fail "captain hold $id is still open (state=$state); use resolve or decline to close it with the captain's decision"
   body=$(resolution_body repaired "$ROUTED_NONE")
@@ -888,6 +1079,7 @@ case "${1:-}" in
   hold) shift; command_hold "$@" ;;
   complete) shift; command_complete "$@" ;;
   verify) shift; command_verify "$@" ;;
+  audit) shift; command_audit "$@" ;;
   resolve) shift; command_resolve "$@" ;;
   answer) shift; command_answer "$@" ;;
   answers) shift; command_answers "$@" ;;

@@ -12,6 +12,9 @@ It never reads report bodies, review artifacts, terminal output, or chat.
 The `hold` subcommand maps an originating work id and stable decision key to `<origin-id>-decision-<decision-key>`.
 It creates a kind `captain` backlog item when absent and invokes `tasks-axi hold <id> --reason <reason> --kind captain` on every retry.
 It rejects an identity collision, a changed title, and attempts to reopen an already resolved identity.
+"Already resolved" is the signal `verify` reads, not the closed state alone.
+Reading the state alone once let `hold` report a decision closed outside the script as already durably resolved while `verify` called the same identity neither actively held nor durably resolved, and that contradiction is what let a wrong close look finished.
+Both refusals stand unchanged; only the diagnosis a wrong close receives is now true, and it names the command that clears it.
 
 The `complete` subcommand unions the reviewed keys into `decision_keys=` and appends `decisions_reviewed=1` while originating task metadata is live.
 A post-teardown visual review can complete against the surviving report and durable holds without recreating volatile task metadata.
@@ -22,6 +25,15 @@ For an open keyed status decision, it appends a `captain-held [key=<key>]: ...` 
 
 Scout teardown calls the script's read-only `verify` subcommand after checking for the report and before removing any source state.
 The `--force` path remains the explicit captain-approved discard escape hatch.
+
+The `audit` subcommand is that gate's fleet-wide read-only counterpart, and `bin/fm-bootstrap.sh` prints each of its findings as a session-start `DECISION_HOLD:` line.
+It exists because `verify` only ever runs at one origin's own teardown: a home that never tore that origin down held a broken decision ledger and had no way to learn it.
+The audit reports every captain decision identity that is neither actively held nor durably resolved, reading the same fields `verify` reads, so a session-start finding and a teardown refusal can never disagree about one identity.
+It is a detector and not a gate: it prints one remediation per defect, always exits 0, and stays silent when tasks-axi cannot be read at all, because bootstrap already reports that on its own line.
+It reads two sources because either alone has a blind spot.
+The backlog listing misses an identity retention has already archived out of `data/backlog.md`, and the home's recorded `decision_keys=` inventories miss an origin whose metadata teardown has already removed.
+An identity that is both archived and torn down is outside both, which is why the detection runs at every session start rather than being written up after the fact.
+An identity is in scope when the home recorded it as a reviewed decision or it carries the provenance `hold` writes, so an ordinary captain-gated thread whose id merely spells the decision separator never enters the report.
 
 The `resolve`, `answer`, and `decline` subcommands close active holds, while `repair` attests a hold already closed outside the script.
 All four require a non-empty captain decision file and record the same resolution block in the hold body with the decision digest, routed identities, and a `Resolution mode:` naming the path.
@@ -38,7 +50,11 @@ Every candidate found in the listing prefilter is confirmed against its own stru
 
 The `repair` subcommand records the resolution block on a hold that was already closed outside the script, such as by a direct `tasks-axi done`, so an origin whose decision was genuinely answered stops failing `verify`.
 It refuses a hold that is still actively held, never reopens a closed hold, and never clears a dependency edge, so an unanswered decision keeps blocking teardown until the captain's word closes it.
-It also requires the identity to carry the captain-hold provenance that tasks-axi preserves through a close, so an ordinary captain-kind task that was never held cannot be repaired into a resolved decision.
+It also requires the identity to carry captain-hold provenance, so an ordinary captain-kind task that was never held cannot be repaired into a resolved decision.
+Provenance is two signals, because an out-of-band close can erase either one on its own.
+`tasks-axi` preserves `hold_kind` through a close but clears it on `unhold`, while the creation body `hold` itself writes survives `unhold`.
+Both are written only by `hold`, so an identity this script never created still carries neither and is still refused; widening the evidence base is what keeps a decision that was unheld out of band from becoming permanently unattestable, and with it permanently unable to pass its origin's completion gate.
+Because a successful repair replaces that creation body, the already-repaired retry is settled before provenance is read, so an exact retry stays idempotent for every hold rather than only for the ones that kept their `hold_kind`.
 
 ## Answer-time closure
 
@@ -89,6 +105,7 @@ Plural blocker-readiness and mixed-home projection verification date: 2026-07-22
 Unrouted close-path verification date: 2026-08-13.
 Answer-time closure verification date: 2026-08-16.
 Cross-origin answer-time closure verification date: 2026-08-19.
+Session-start audit and out-of-band-close provenance verification date: 2026-08-20.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -109,6 +126,11 @@ A replayed delivery closes nothing new and is not rejected as a different decisi
 A separate regression drives the real `fm-send` over a stubbed transport to prove the chat channel reaches the same intake for a decision already transferred to its hold, which the status ledger alone can no longer close.
 The cross-origin regression drives a bound source through the real runner and adapter interface, closes full-identity holds from different origins, and proves that over-limit, malformed, non-decision, routed-work, absent-hold, and replayed answers all fail or skip without weakening the existing guards.
 
+One further regression covers the session-start audit and the wrong-close shapes it exists to name.
+It reproduces all three with the exact commands that caused them - a direct `tasks-axi done`, an `unhold` followed by `done`, and a bare `unhold` - and proves the completion gate refuses, the audit names each defect with the remediation that actually clears it, and the same findings reach a session start as `DECISION_HOLD:` lines.
+It proves `hold` and `verify` now give one verdict about one identity, that an ordinary captain-gated thread whose id merely spells the decision separator never enters the report, and that the report empties only as each decision is closed with the captain's word and not before.
+The unheld close is attested by `repair` rather than left permanently unattestable, while a closed captain-kind task the script never created is still refused.
+
 The final verification commands and their exact summarized outputs follow.
 
 ```text
@@ -117,6 +139,7 @@ ok - report-only unresolved decision is reproduced and completion refuses before
 ok - non-forced scout teardown always requires durable inventory verification
 ok - a declined decision closes with a recorded answer and no routed work
 ok - a decision closed outside the script is repairable and then clears teardown
+ok - captain decisions closed outside their owner are named at session start and clear only when genuinely closed
 ok - an unanswered decision still blocks completion and resists both unrouted close paths
 ok - captain holds are idempotent, distinct, teardown-safe, Bearings-visible, and durably routed before close
 ok - completion and verification validate origins before constructing paths
@@ -157,7 +180,7 @@ $ bin/fm-lint.sh
 fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)
 
 $ bin/fm-doc-audience-check.sh
-fm-doc-audience-check: ok surfaces=68 local_links=253
+fm-doc-audience-check: ok surfaces=70 local_links=255
 
 $ git diff --check
 (no output)
