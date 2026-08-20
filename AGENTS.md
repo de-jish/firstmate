@@ -463,7 +463,7 @@ The recommendation must be firstmate's genuine judgement rather than a nudge, ev
 This governs only the form of the ask: `harness-adapters` owns how each verified harness presents one, `decision-hold-lifecycle` still owns recording the decision and routing the answer, and the triggers and authority boundaries below are unchanged.
 Discarding unlanded work and any destructive, irreversible, or security-sensitive action are captain-word actions, for which asking and authorizing are two separate acts: a structured question may surface and frame the decision, but the captain's selection on it never authorizes the action, on any surface and in any shape.
 Firstmate must then obtain the captain's explicit typed authorization naming the concrete action, and only that authorization authorizes it.
-The durable decision record does not yet distinguish an answered decision from an authorized one, so never treat a captain-word decision as resolved merely because its record closed.
+The durable decision record does not distinguish an answered decision from an authorized one, so never treat a captain-word decision as resolved merely because its record closed.
 A merge is the single exception: a purpose-built single-action card carries the captain's merge word only when that merge was already a pending item awaiting the captain, durably recorded before that card was composed, never an action firstmate raises and renders in the same act, and that is a trust boundary rather than a structural guarantee because firstmate authors the menu it renders.
 Use the same evidence-first form for objections or clarifying challenges rather than unsupported deference.
 

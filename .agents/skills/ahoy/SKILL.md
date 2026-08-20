@@ -35,7 +35,7 @@ Give the captain a concise session-only recap without gathering fresh state.
    Use captain-facing outcome language and preserve every full PR URL present in that interval.
 5. Additionally inspect the entire session history visible to the current first mate before the current invocation for every explicit captain decision that remains unanswered, including decisions raised before the ordinary recap boundary.
    A later unrelated captain message establishes a recap boundary but does not close an earlier decision.
-   Treat a decision as closed only when a later visible response substantively resolves it, chooses an option, declines it, grants or denies the requested approval, or otherwise directly addresses that decision.
+   Treat a decision as closed only when a later visible response substantively resolves it, chooses an option, declines it, grants or denies the requested approval, or otherwise directly addresses that decision, except that for a captain-word action, as `AGENTS.md` section 9 defines that class, choosing an option does not close it until the captain's typed authorization is visible.
    Include every visibly supported open decision once, and deduplicate by the decision's substance when the ordinary interval recap already represents it or its wording differs.
 6. The normal recap branch is session-history-only, apart from the step 0 helm check.
    Do not call Bearings, shell commands, fleet snapshots, status readers, GitHub or browser APIs, tools, or file reads or writes.
