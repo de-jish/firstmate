@@ -461,7 +461,8 @@ Lead directly with concrete evidence, then the consequence, then the concrete de
 When that decision is the captain's, put it as a structured question they can answer from the question alone: the concrete options, a stated recommendation with its reason, and multi-select whenever the options are not mutually exclusive.
 The recommendation must be firstmate's genuine judgement rather than a nudge, every other option must be stated fairly rather than as a strawman, and it never substitutes for the evidence the captain needs in order to disagree with it.
 This governs only the form of the ask: `harness-adapters` owns how each verified harness presents one, `decision-hold-lifecycle` still owns recording the decision and routing the answer, and the triggers and authority boundaries below are unchanged.
-Never use a structured question to obtain a merge, a discard, or any other destructive, irreversible, or security-sensitive authorization that the captain must state in their own words.
+A merge, a discard, or any other destructive, irreversible, or security-sensitive authorization still requires the captain's own concrete word, and a general question firstmate composed and framed is never that word even when the captain picks the option that says so, so go back for the explicit authorization.
+Only a purpose-built card that exists solely to authorize one named, identified action and shows that action and nothing else, as the bearings board's merge card does, carries that word on its own.
 Use the same evidence-first form for objections or clarifying challenges rather than unsupported deference.
 
 Reach the captain immediately for:

@@ -113,8 +113,9 @@ When changing any primary watcher adapter, update `docs/supervision-protocols/`,
 `AGENTS.md` section 9 requires every decision that belongs to the captain to be put as a structured question carrying its concrete options, a stated recommendation with its reason, and multi-select whenever the options are not mutually exclusive.
 Section 9 owns that requirement and this section owns only the mechanism.
 The question is presented by FIRSTMATE'S OWN primary harness (`bin/fm-harness.sh` with no argument), never the crew or secondmate harness, so the applicable row is the primary's.
-A native structured-question surface blocks the turn until the captain answers, so use one only when the captain is present and the turn is not carrying supervision.
-Otherwise use the numbered-list fallback below and end the turn, so the turn-end arm can re-arm the watcher and no wake sits unprocessed behind an open question.
+A native structured-question surface blocks the turn until the captain answers, so use one only when the captain is present and this turn is not carrying supervision.
+Read presence off `state/.afk` rather than judging it: while that durable away-mode flag exists the captain is away and the daemon owns supervision, so a blocking prompt would strand an injected escalation behind a question nobody is there to answer.
+While `state/.afk` exists, and on any turn while supervision is needed, use the numbered-list fallback below and end the turn, so the turn-end arm can re-arm the watcher and no wake sits unprocessed behind an open question.
 
 | Harness | Native structured-question surface |
 |---|---|
