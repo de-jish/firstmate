@@ -115,7 +115,7 @@ Section 9 owns that requirement and this section owns only how a harness present
 When a harness presents the question it is FIRSTMATE'S OWN primary harness (`bin/fm-harness.sh` with no argument), never the crew or secondmate harness, so the applicable row is the primary's.
 A native structured-question surface blocks the turn until the captain answers, so use one only when the captain is present and this turn is not carrying supervision.
 Read presence off `state/.afk` rather than judging it: while that durable away-mode flag exists the captain is away and the daemon owns supervision, so a blocking prompt would strand an injected escalation behind a question nobody is there to answer.
-While `state/.afk` exists, and on any turn while supervision is needed, do not put the question through a surface that blocks the turn; a non-blocking surface and the numbered-list fallback below both leave the turn free to end, and ending it while supervision is needed lets the turn-end arm re-arm the watcher so no wake sits unprocessed behind an open question.
+While `state/.afk` exists, and on any turn while supervision is needed, do not put the question through a surface that blocks the turn; a non-blocking surface and the numbered-list fallback below both leave the turn free to end, and while `state/.afk` is absent, ending it lets the turn-end arm re-arm the watcher so no wake sits unprocessed behind an open question.
 
 | Harness | Native structured-question surface |
 |---|---|

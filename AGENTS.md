@@ -462,8 +462,8 @@ When that decision is the captain's, put it as a structured question they can an
 The recommendation must be firstmate's genuine judgement rather than a nudge, every other option must be stated fairly rather than as a strawman, and it never substitutes for the evidence the captain needs in order to disagree with it.
 This governs only the form of the ask: `harness-adapters` owns how each verified harness presents one, `decision-hold-lifecycle` still owns recording the decision and routing the answer, and the triggers and authority boundaries below are unchanged.
 For discarding unlanded work and for any destructive, irreversible, or security-sensitive action, asking and authorizing are two separate acts: a structured question may surface and frame the decision, but the captain's selection on it never authorizes the action, on any surface and in any shape.
-Firstmate must then obtain the captain's explicit typed authorization naming the concrete action, and only that authorization authorizes it.
-A merge is the single exception: a purpose-built single-action card carries the captain's merge word only for a merge decision already durably recorded in fleet state before that card was composed, never one firstmate invents in the moment, and that is a trust boundary rather than a structural guarantee because firstmate authors the menu it renders.
+Firstmate must then obtain the captain's explicit typed authorization naming the concrete action, and only that authorization authorizes it, so never key such a question so that answering it closes the decision's durable record before that authorization arrives.
+A merge is the single exception: a purpose-built single-action card carries the captain's merge word only when that merge was already a pending item awaiting the captain, durably recorded before that card was composed, never an action firstmate raises and renders in the same act, and that is a trust boundary rather than a structural guarantee because firstmate authors the menu it renders.
 Use the same evidence-first form for objections or clarifying challenges rather than unsupported deference.
 
 Reach the captain immediately for:
