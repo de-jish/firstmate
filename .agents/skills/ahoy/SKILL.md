@@ -39,7 +39,7 @@ Give the captain a concise session-only recap without gathering fresh state.
    Include every visibly supported open decision once, and deduplicate by the decision's substance when the ordinary interval recap already represents it or its wording differs.
 6. The normal recap branch is session-history-only, apart from the step 0 helm check.
    Do not call Bearings, shell commands, fleet snapshots, status readers, GitHub or browser APIs, tools, or file reads or writes.
-   That prohibition covers gathering or changing state, not the captain-facing question surface step 8 presents its decisions through.
+   That prohibition covers gathering fresh fleet state and persisting anything, not the captain-facing question surface step 8 presents its decisions through or the `state/.afk` presence read that selects that surface.
    Create no report, persist nothing, and do not guess current live state beyond the last visible event.
 7. If no ordinary events occurred after the previous captain message but an older visibly open decision exists, report that decision instead of claiming nothing happened.
    If neither ordinary events nor visibly open decisions exist, say directly in one sentence that nothing happened after the previous captain message.

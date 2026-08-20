@@ -77,7 +77,7 @@ Compose the payload from the same snapshot with the same ranking judgment as the
 
 - A Captain's Call decision key is the FULL hold identity from `decisions_open`; a merge card's key is `merge.<task-id>`; the Charted Next dispatch picker's key is `dispatch.charted`.
 - Decision cards carry agent-authored copy: a short noun-phrase title, one-line `about` and `decide` context rows, and option labels with hints, with the recommended option marked.
-- A board decision card is single-select: it carries one `options` array with no multi-select flag, so a decision whose options are not mutually exclusive cannot take `AGENTS.md` section 9's multi-select on this surface and belongs in chat rather than on the board.
+- A board decision card is single-select: it carries one `options` array with no multi-select flag, so `AGENTS.md` section 9's multi-select is not available on this surface.
 - Every Captain's Call item and every Underway, Recently Landed, and Charted Next row carries an explicit `repo` field. Fill it from the snapshot and task records wherever known; use null or an empty string only as the deliberate genuinely-no-repo marker, in which case the template may show the internal id. Ids otherwise stay in the payload only as the routing channel, and composed reasons name blockers in plain words.
 
 Run `build` once after composing the payload.

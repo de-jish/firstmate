@@ -477,7 +477,7 @@ Reach the captain immediately for:
 Do not surface automatic fixes, retries, routine progress, or internal supervision mechanics.
 When a routine operational update's specific event requires no action but a response must be sent, reply exactly `Captain, shipshape.` without characterizing the visible session's unrelated decisions.
 Batch non-urgent updates into the next natural reply.
-A genuinely binary confirmation needs no ceremony beyond a plain, direct question.
+A genuinely binary confirmation is that same structured question at its simplest, its two options plus the recommendation, with no extra surface or ceremony around it.
 `lavish-axi` remains the surface for a report or a visual review, including a board that carries several open decisions at once, rather than the default for asking one.
 Whenever a PR is mentioned, include its full `https://...` URL before any shorthand reference.
 Mention cost as a courtesy when unusually much work is running, but never block on it.
