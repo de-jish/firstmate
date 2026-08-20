@@ -2,7 +2,7 @@
 name: harness-adapters
 description: >-
   Agent-only reference for firstmate harness operations.
-  Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
+  Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, putting a structured question to the captain, or verifying a new harness adapter.
   Contains verified facts for claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, and muse.
 user-invocable: false
 metadata:
@@ -11,7 +11,7 @@ metadata:
 
 # harness-adapters
 
-Use this reference before any harness-specific firstmate operation: spawn, recovery, trust-dialog handling, skill invocation, interrupt, exit, resume, or adapter verification.
+Use this reference before any harness-specific firstmate operation: spawn, recovery, trust-dialog handling, skill invocation, interrupt, exit, resume, putting a structured question to the captain, or adapter verification.
 
 Crewmates default to the same harness firstmate is running on unless `config/crew-harness` records an adapter name.
 Optional dispatch profiles in `config/crew-dispatch.json` can override that static default for one crewmate or scout dispatch by selecting concrete harness, model, and effort axes at intake.
@@ -107,6 +107,27 @@ Codex uses bounded foreground checkpoints through `bin/fm-watch-checkpoint.sh` b
 OpenCode uses `.opencode/plugins/fm-primary-watch-arm.js`, which coordinates with the turn-end guard plugin and wakes the TUI with `client.session.promptAsync`.
 Pi and pi-signed use the tracked `.pi/extensions/fm-primary-turnend-guard.ts` plus the tracked `.pi/extensions/fm-primary-pi-watch.ts`, both project-local extensions the Pi engine auto-discovers once trusted.
 When changing any primary watcher adapter, update `docs/supervision-protocols/`, `docs/turnend-guard.md` if a shared idle or turn-end hook changed, and the relevant concise fact below.
+
+## Structured captain questions
+
+`AGENTS.md` section 9 requires every decision that belongs to the captain to be put as a structured question in the form it specifies.
+Section 9 owns that requirement and this section owns only how a harness presents one.
+When a harness presents the question it is FIRSTMATE'S OWN primary harness (`bin/fm-harness.sh` with no argument), never the crew or secondmate harness, so the applicable row is the primary's.
+A native structured-question surface blocks the turn until the captain answers, so use a surface that blocks the turn only while `state/.afk` is absent and supervision is not needed.
+Read presence off `state/.afk` rather than judging it: while that durable away-mode flag exists the captain is away and the daemon owns supervision, so a blocking prompt would strand an injected escalation behind a question nobody is there to answer.
+A non-blocking surface and the numbered-list fallback below both leave the turn free to end, and while `state/.afk` is absent, ending it lets the turn-end arm re-arm the watcher so no wake sits unprocessed behind an open question.
+
+| Harness | Native structured-question surface |
+|---|---|
+| claude | YES, the first-party `AskUserQuestion` tool. Verified 2026-08-20 on Claude Code 2.1.237: the tool is in an interactive session's own toolset, and its schema carries per-question `options` with a label plus a description, and a `multiSelect` boolean, so all three required parts are native. It also offers the captain its own free-text `Other` choice, so a question never traps them inside the listed options. |
+| codex | NONE verified. codex-cli 0.147.0 exposes no first-party ask-the-user tool. Its binary does carry MCP elicitation single- and multi-select enum schemas, but elicitation is how an MCP SERVER prompts the user, not a surface the primary session can call to put its own question, so it does not satisfy the requirement. Use the fallback. |
+| opencode, pi, pi-signed, grok, kimi, cursor | NOT VERIFIED. None was checked against a live install, because none is installed on the machine that verified the two rows above. Do not assume a surface exists; use the fallback until a row here records a verified one. |
+| muse | Not applicable. muse is a crewmate and scout adapter only, so a muse session never addresses the captain. |
+
+For every row that is not a verified YES, the fallback is a numbered option list in plain chat carrying exactly the same three things: each option on its own numbered line, the recommendation named with its reason, and an explicit statement of whether more than one option may be chosen, stated outright in its own words because wording that merely leaves the choice constraint to be inferred does not satisfy it.
+The requirement is that content, not the widget; the fallback satisfies `AGENTS.md` section 9 in full, and a native surface is only a better delivery of it.
+Verifying a new row means observing the real harness put a real multi-option question to a human and return the answer, the same live-proof bar this skill applies everywhere else.
+A documented tool name, a help string, or a binary string is not a verified row.
 
 ## Launch profile axes
 

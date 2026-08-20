@@ -4,6 +4,8 @@ data/
 scratchpad/
 .no-mistakes/
 .lavish/
+# machine-local Serena config, committed to this repo once already
+.serena/
 .fm-secondmate-home
 .fm-secondmate-parent
 .DS_Store
