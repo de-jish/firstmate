@@ -124,7 +124,7 @@ A non-blocking surface and the numbered-list fallback below both leave the turn 
 | opencode, pi, pi-signed, grok, kimi, cursor | NOT VERIFIED. None was checked against a live install, because none is installed on the machine that verified the two rows above. Do not assume a surface exists; use the fallback until a row here records a verified one. |
 | muse | Not applicable. muse is a crewmate and scout adapter only, so a muse session never addresses the captain. |
 
-For every row that is not a verified YES, the fallback is a numbered option list in plain chat carrying exactly the same three things: each option on its own numbered line, the recommendation named with its reason, and an explicit statement of whether more than one option may be chosen.
+For every row that is not a verified YES, the fallback is a numbered option list in plain chat carrying exactly the same three things: each option on its own numbered line, the recommendation named with its reason, and an explicit statement of whether more than one option may be chosen, stated outright in its own words because wording that merely leaves the choice constraint to be inferred does not satisfy it.
 The requirement is that content, not the widget; the fallback satisfies `AGENTS.md` section 9 in full, and a native surface is only a better delivery of it.
 Verifying a new row means observing the real harness put a real multi-option question to a human and return the answer, the same live-proof bar this skill applies everywhere else.
 A documented tool name, a help string, or a binary string is not a verified row.
