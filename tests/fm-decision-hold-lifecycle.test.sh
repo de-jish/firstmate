@@ -1396,21 +1396,24 @@ test_audit_open_state_verdict_holds_for_every_open_shape() {
   pass "the audit's open-state verdict is true of every open shape, names no command, and changes nothing"
 }
 
-# Teardown ends an origin but not the decisions it raised. `bin/fm-teardown.sh`
-# removes `state/<origin-id>.meta` and `data/<origin-id>/`, ordinary retention
-# then moves the closed origin task out of `data/backlog.md`, and the decision
-# identity outlives all three: still open, still in scope through the creation
-# body `hold` wrote on it, and still named at every session start. Those three
-# are exactly what `origin_exists_here` reads, so the recovery this document once
-# recorded - `bin/fm-decision-hold.sh hold <origin-id> <decision-key> ...` -
-# refused for precisely the identities the audit is most likely to name, and the
-# open-state finding had no followable remedy for them. This helper builds that
-# shape for real rather than a convenient stand-in.
-seed_torn_down_decision_identity() {  # <home> <origin-id> <decision-key> [routed-task]
+# An origin whose home no longer owns it by ANY of the three signals
+# `origin_exists_here` reads: no `state/<origin-id>.meta`, no
+# `data/<origin-id>/report.md`, and no row in `data/backlog.md`. Teardown alone
+# does not produce this - it removes the metadata and never touches
+# `data/<origin-id>/`, and a scout report survives it by contract - so the shape
+# belongs to an origin that has no scout report to begin with, once its metadata
+# is gone and retention has archived its backlog row. This helper builds it
+# directly, by removing the report as well, because the recovery the document
+# records has to hold for the shape rather than for the route into it: the
+# decision identity outlives all three signals, stays in scope through the
+# creation body `hold` wrote on it, and is still named at every session start,
+# while `bin/fm-decision-hold.sh hold` - which the recovery once prescribed -
+# refuses there and leaves the finding with no followable remedy.
+seed_unowned_origin_decision_identity() {  # <home> <origin-id> <decision-key> [routed-task]
   local home=$1 id=$2 key=$3 routed=${4:--} hold_id="$2-decision-$3" filler
   mkdir -p "$home/data/$id"
   tasks_in "$home" add "$id" "Investigate the sample $key" --kind scout --repo sample --start >/dev/null \
-    || fail "could not create the torn-down origin"
+    || fail "could not create the unowned origin"
   write_origin_meta "$home" "$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
   printf '# Sample %s review\n\nOne captain choice remains.\n' "$key" > "$home/data/$id/report.md"
@@ -1426,10 +1429,11 @@ seed_torn_down_decision_identity() {  # <home> <origin-id> <decision-key> [route
   run_decisions "$home" complete "$id" "$key" >/dev/null \
     || fail "completion failed while the $key decision was properly held"
 
-  # What teardown removes, removed the way teardown removes it.
+  # Teardown's own removal, plus the report an origin with no scout deliverable
+  # would never have had, which is what makes all three signals absent at once.
   rm -f "$home/state/$id.meta" "$home/state/$id.status"
   rm -rf "$home/data/$id"
-  tasks_in "$home" "done" "$id" >/dev/null || fail "could not close the torn-down origin"
+  tasks_in "$home" "done" "$id" >/dev/null || fail "could not close the unowned origin"
   # Real retention, driven the way a working home drives it, until the closed
   # origin task itself is gone from data/backlog.md.
   for filler in $(seq 1 12); do
@@ -1439,33 +1443,33 @@ seed_torn_down_decision_identity() {  # <home> <origin-id> <decision-key> [route
   done
 
   # All three ownership signals gone, and the decision identity still there.
-  [ ! -e "$home/state/$id.meta" ] || fail "the torn-down origin kept its task metadata"
-  [ ! -e "$home/data/$id/report.md" ] || fail "the torn-down origin kept its report"
+  [ ! -e "$home/state/$id.meta" ] || fail "the unowned origin kept its task metadata"
+  [ ! -e "$home/data/$id/report.md" ] || fail "the unowned origin kept its report"
   if tasks_in "$home" show "$id" >/dev/null 2>&1; then
-    fail "retention did not archive the closed origin, so the torn-down shape was not reproduced"
+    fail "retention did not archive the closed origin, so the unowned shape was not reproduced"
   fi
   tasks_in "$home" show "$hold_id" >/dev/null 2>&1 \
-    || fail "the decision identity did not survive its origin's teardown, so this case reproduces nothing"
+    || fail "the decision identity did not outlive its origin, so this case reproduces nothing"
 }
 
-# The recorded open-state recovery, walked on a torn-down identity in the two
-# open shapes it covers. Both halves matter. The refusal is pinned so the limit
-# the section states cannot quietly rot back into a prescription, and the
-# recovery is walked to its end rather than to the point where the audit stops
-# printing, because clearing the line without being able to record the captain's
-# answer would be a worse outcome than the finding.
-test_recorded_recovery_clears_a_torn_down_open_decision() {
+# The recorded open-state recovery, walked on an identity whose origin this home
+# no longer owns, in the two open shapes it covers. Both halves matter. The
+# refusal is pinned so the limit the section states cannot quietly rot back into
+# a prescription, and the recovery is walked to its end rather than to the point
+# where the audit stops printing, because clearing the line without being able to
+# record the captain's answer would be a worse outcome than the finding.
+test_recorded_recovery_clears_an_unowned_origin_open_decision() {
   local home id hold_id before after out
-  home=$(make_home torn-down-released)
+  home=$(make_home unowned-released)
   printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
   id=sample-teardown-review
   hold_id="$id-decision-route"
-  seed_torn_down_decision_identity "$home" "$id" route
+  seed_unowned_origin_decision_identity "$home" "$id" route
   tasks_in "$home" unhold "$hold_id" >/dev/null || fail "could not release the captain hold"
 
   out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
   assert_contains "$out" "$hold_id is open in a state fm-decision-hold cannot close" \
-    "the audit stopped naming a released decision whose origin was torn down"
+    "the audit stopped naming a released decision whose origin this home no longer owns"
   assert_contains "$out" "state=queued held=no" "the audit misreported the released shape"
 
   before=$(tasks_in "$home" show "$hold_id" --full)
@@ -1475,12 +1479,12 @@ test_recorded_recovery_clears_a_torn_down_open_decision() {
     fail "hold acted on an origin this home no longer owns, so the documented limit is not what it says"
   fi
   assert_grep "is not owned by the active home" "$home/hold.err" \
-    "hold refused a torn-down origin for some reason other than ownership"
+    "hold refused an unowned origin for some reason other than ownership"
   after=$(tasks_in "$home" show "$hold_id" --full)
   [ "$before" = "$after" ] || fail "the refused hold mutated the record it declined to act on"
 
   tasks_in "$home" hold "$hold_id" --reason "captain route choice pending" --kind captain >/dev/null \
-    || fail "the recorded recovery did not restore the captain hold on a torn-down identity"
+    || fail "the recorded recovery did not restore the captain hold on an unowned-origin identity"
   out=$(run_decisions "$home" audit) || fail "audit exited nonzero after the recorded recovery"
   [ -z "$out" ] || fail "the audit still reports a defect after the recorded recovery ran: $out"
   run_decisions "$home" answer "$id" route --decision-file "$home/decision.txt" >/dev/null \
@@ -1488,19 +1492,19 @@ test_recorded_recovery_clears_a_torn_down_open_decision() {
   out=$(run_decisions "$home" audit) || fail "audit exited nonzero after the captain answer"
   [ -z "$out" ] || fail "the audit still reports a defect after the captain answer was recorded: $out"
 
-  # The in_flight shape on its own torn-down origin, with routed work blocked
+  # The in_flight shape on its own unowned origin, with routed work blocked
   # behind the decision throughout, so a step that closed the identity to get it
   # back to queued would be caught by the dependent rather than hidden by it.
-  home=$(make_home torn-down-inflight)
+  home=$(make_home unowned-inflight)
   printf 'Captain chose the northern sample shape.\n' > "$home/decision.txt"
   id=sample-inflight-teardown
   hold_id="$id-decision-shape"
-  seed_torn_down_decision_identity "$home" "$id" shape "$id-shape-work"
+  seed_unowned_origin_decision_identity "$home" "$id" shape "$id-shape-work"
   tasks_in "$home" start "$hold_id" >/dev/null || fail "could not reproduce the start"
 
   out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
   assert_contains "$out" "$hold_id is open in a state fm-decision-hold cannot close" \
-    "the audit stopped naming a started decision whose origin was torn down"
+    "the audit stopped naming a started decision whose origin this home no longer owns"
   assert_contains "$out" "state=in_flight" "the audit misreported the started shape"
 
   before=$(tasks_in "$home" show "$hold_id" --full)
@@ -1510,12 +1514,12 @@ test_recorded_recovery_clears_a_torn_down_open_decision() {
     fail "hold acted on a started identity whose origin this home no longer owns"
   fi
   assert_grep "is not owned by the active home" "$home/hold.err" \
-    "hold refused a torn-down origin for some reason other than ownership"
+    "hold refused an unowned origin for some reason other than ownership"
   after=$(tasks_in "$home" show "$hold_id" --full)
   [ "$before" = "$after" ] || fail "the refused hold mutated the record it declined to act on"
 
   tasks_in "$home" reopen "$hold_id" >/dev/null \
-    || fail "the recorded recovery could not return the torn-down identity to queued"
+    || fail "the recorded recovery could not return the unowned-origin identity to queued"
   assert_contains "$(tasks_in "$home" show "$id-shape-work" --full)" "blocked: yes" \
     "the recorded recovery released the captain-gated routed work while recovering the decision"
   out=$(run_decisions "$home" audit) || fail "audit exited nonzero after the recorded recovery"
@@ -1525,7 +1529,7 @@ test_recorded_recovery_clears_a_torn_down_open_decision() {
     || fail "the ledger could not record the captain answer on the routed identity it recovered"
   out=$(run_decisions "$home" audit) || fail "audit exited nonzero after the captain answer"
   [ -z "$out" ] || fail "the audit still reports a defect after the captain answer was recorded: $out"
-  pass "the recorded open-state recovery is followable on a torn-down origin and ends the finding"
+  pass "the recorded open-state recovery is followable when the origin is no longer owned here and ends the finding"
 }
 
 # The incident, generalized: captain decisions were closed with `tasks-axi done`
@@ -1630,8 +1634,7 @@ test_audit_reports_decisions_closed_outside_their_owner() {
   printf 'Captain chose the round sample shape.\n' > "$home/shape-decision.txt"
   run_decisions "$home" repair "$id" shape --decision-file "$home/shape-decision.txt" >/dev/null \
     || fail "repair could not attest the decision that was unheld before it was closed"
-  run_decisions "$home" hold "$id" keep --title "Choose the sample keep" \
-    --reason "captain keep choice pending" --repo sample >/dev/null \
+  tasks_in "$home" hold "$id-decision-keep" --reason "captain keep choice pending" --kind captain >/dev/null \
     || fail "a released decision could not be re-activated"
   printf 'Captain chose to keep the sample.\n' > "$home/keep-decision.txt"
   run_decisions "$home" answer "$id" keep --decision-file "$home/keep-decision.txt" >/dev/null \
@@ -2298,7 +2301,7 @@ test_correctly_resolved_decisions_stay_silent_after_retention_archives_them
 test_audit_cost_does_not_grow_with_the_decisions_it_protects
 test_audit_line_never_contradicts_the_state_it_prints
 test_audit_open_state_verdict_holds_for_every_open_shape
-test_recorded_recovery_clears_a_torn_down_open_decision
+test_recorded_recovery_clears_an_unowned_origin_open_decision
 test_unanswered_decision_still_blocks_completion_and_teardown
 test_structured_holds_survive_teardown_and_route_resolution
 test_origin_slug_validation_precedes_path_construction

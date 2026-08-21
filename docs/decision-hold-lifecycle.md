@@ -98,12 +98,14 @@ The recovery is here instead, in one place where it can be exhaustive and where 
 Every close path in this ledger accepts exactly one shape, `state: queued` with `held: yes` and `hold_kind: captain`, so the recovery is whichever of the two restoring steps below the record still needs, followed by the close.
 An identity whose `kind` drifted off `captain` is a different finding with a different line, and that line names the `tasks-axi update` that clears it.
 
-Both restoring steps are `tasks-axi` commands rather than `bin/fm-decision-hold.sh hold`, and that is a correctness requirement rather than a preference.
-`command_hold` refuses unless the origin is owned by the active home, which means `state/<origin-id>.meta` exists, `data/<origin-id>/report.md` exists, or the origin task is still in `data/backlog.md`.
-`bin/fm-teardown.sh` deletes the first two when the origin's work ends and ordinary retention then moves the closed origin task out of `data/backlog.md`, while the decision identity outlives all three and stays in the audit's scope through the creation body `hold` wrote on it.
-So for exactly the identities a session-start audit is most likely to name, `bin/fm-decision-hold.sh hold` exits 1 with `origin <origin-id> is not owned by the active home <FM_HOME>` and restores nothing.
+Both restoring steps are `tasks-axi` commands rather than `bin/fm-decision-hold.sh hold`, because there is a reachable shape in which `hold` refuses and these two do not.
+`command_hold` refuses unless the origin is owned by the active home, and `origin_exists_here` passes on ANY of three signals: `state/<origin-id>.meta` exists, `data/<origin-id>/report.md` exists, or the origin task is still in `data/backlog.md`.
+Teardown clears only the first of the three - `bin/fm-teardown.sh` removes `state/<origin-id>.meta` and `state/<origin-id>.turn-ended` and nothing under `data/<origin-id>/` - and ordinary retention later archives the closed origin task out of `data/backlog.md`.
+The surviving report is deliberate rather than an oversight: `AGENTS.md` records `<id>/report.md` as the scout task deliverable that survives teardown, and a non-forced scout teardown refuses outright when it is missing, so a scout origin that wrote one keeps `bin/fm-decision-hold.sh hold` working for as long as that file is on disk.
+All three signals are gone only for an origin that has no `data/<origin-id>/report.md` at all, once its metadata is deleted and retention has archived its backlog row: an origin of a kind that writes no scout report, a scout discarded with `--force` before it wrote one, since that is the only path teardown does not gate on the report, or any origin whose report was removed afterwards by hand.
+For an identity in that state `bin/fm-decision-hold.sh hold` exits 1 with `origin <origin-id> is not owned by the active home <FM_HOME>` and restores nothing, while the decision identity itself outlives all three signals and stays in the audit's scope through the creation body `hold` wrote on it, so the finding keeps printing with no followable remedy.
 That refusal is correct and is not to be weakened: the guard exists so no new decision identity is ever created for an origin this home does not own, and it has nothing to add for an identity that already exists here and already carries this home's creation body.
-The two commands below act on the decision identity itself, so one recovery covers a torn-down origin and a live one alike, and the reproduce-catch-revert transcripts below carry both that refusal and this recovery run against a torn-down origin.
+The two commands below act on the decision identity itself, so one recovery covers an unowned origin and a live one alike, and the reproduce-catch-revert transcripts below carry both that refusal and this recovery run against an unowned origin.
 
 **Step 1, only when `state` is not `queued`** - `tasks-axi reopen <hold-id>`.
 `state=in_flight` is reached by `tasks-axi start`, which `tasks-axi` accepts whether or not the captain hold is still on the identity, so that shape covers both `held=no hold_kind="-"` and `held=yes hold_kind=captain`.
@@ -113,10 +115,10 @@ For an `in_flight` identity still carrying `held: yes` and `hold_kind: captain`,
 **Step 2, only when the record is not `held: yes` with `hold_kind: captain`** - `tasks-axi hold <hold-id> --reason "<reason>" --kind captain`.
 This is the step for `state=queued held=no`, where the hold was released, typically by `tasks-axi unhold`, and the decision is now invisible to the captain.
 It is equally the step for `state=queued held=yes` with any other `hold_kind`, where the hold was released and then re-held for something that is not the captain, so it blocks work without recording a captain question; it re-holds an already-held identity for the captain rather than refusing, so nothing has to release it first.
-It is the same command the lost-provenance line prints as its own second step, and it is the only command observed to restore both `held` and `hold_kind` on an identity whose origin is gone.
+It is the same command the lost-provenance line prints as its own second step, and it is the only command observed to restore both `held` and `hold_kind` on an identity whose origin this home no longer owns.
 
 **Step 3** - close it through this ledger, with `resolve` while routed work is still blocked behind it, `answer` once nothing is, or `decline` when the captain's answer routes no work.
-None of those three reads the origin's metadata or report, so they close a torn-down identity exactly as they close a live one.
+None of those three reads the origin's metadata or report, so they close an identity whose origin is no longer owned here exactly as they close one whose origin is.
 
 Do not substitute `bin/fm-decision-hold.sh hold` for either restoring step even when the origin is still owned.
 It refuses an identity that is not queued, but it applies the captain hold BEFORE it refuses, so a run that exits 1 on an `in_flight` identity still leaves the record at `held: yes` and `hold_kind: captain` and the identity no closer to closable.
@@ -187,6 +189,7 @@ Open-state verdict truth across every open shape verification date: 2026-08-21.
 Red-first proof of the open-state regression, and stale-claim sweep, verification date: 2026-08-21.
 Close-free in_flight recovery and forbidden-close sweep verification date: 2026-08-21.
 Post-teardown open-state recovery verification date: 2026-08-21.
+Unowned-origin open-state recovery, corrected teardown-deletion premise, and fourth open shape verification date: 2026-08-21.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -229,9 +232,9 @@ An eighth pins the open-state fall-through to what a verdict may say, and its su
 It drives a correctly held decision to `state=in_flight held=yes hold_kind=captain` with the single `tasks-axi start` that `tasks-axi`'s own `ready` and `show` help advertise, keeps a routed task blocked behind it throughout, and proves the line asserts none of the six claims that state falsifies, reports the state, held and hold_kind fields the record actually carries, names none of the eleven mutating invocations the two tools offer here, and points at this document.
 It carries the released shape alongside it and requires the two lines to be the same sentence once the parenthesised field group is stripped, because a verdict that reads differently for two shapes it fires on has been tuned to one of them.
 It also proves the read leaves the record byte-identical and repeats identically, then runs the recovery this document records for `in_flight`, and proves the finding clears, the routed task is still blocked, and the origin passes `verify`, so the guidance is proven followable rather than asserted.
-A ninth walks the recorded open-state recovery on a torn-down origin, which is the case the recovery was previously unfollowable for.
-It builds the shape teardown and retention actually leave behind - the origin's metadata and data deleted, the origin task closed and then driven out of `data/backlog.md` by real retention closes - and first pins the documented limit by proving `bin/fm-decision-hold.sh hold` refuses there and leaves the record byte-identical.
-It then runs the two `tasks-axi` steps in the order the section records, on the `queued held=no` shape and on the `in_flight` shape, and proves in each case that the audit falls silent and that this ledger can then close the identity with the captain's word.
+A ninth walks the recorded open-state recovery for an identity whose origin this home no longer owns by any of the three signals `origin_exists_here` reads, which is the case the recovery was previously unfollowable for.
+It builds that shape deliberately rather than by reproducing teardown, because teardown alone does not reach it: it removes the origin's metadata, removes the report an origin that writes no scout deliverable would never have had, closes the origin task, drives it out of `data/backlog.md` with real retention closes, and asserts all three signals are gone before the walk begins.
+It first pins the documented limit by proving `bin/fm-decision-hold.sh hold` refuses there and leaves the record byte-identical, then runs the two `tasks-axi` steps in the order the section records, on the `queued held=no` shape and on the `in_flight` shape, and proves in each case that the audit falls silent and that this ledger can then close the identity with the captain's word.
 The sixth, `test_audit_names_a_reviewed_decision_moved_off_kind_captain`, is the one regression that fails if a `--kind captain` filter is ever restored to the audit's listing, which is the only way that detection could be deleted while every other regression stayed green.
 
 ### Reproduce, catch, revert, as of 2026-08-21
@@ -351,10 +354,25 @@ $ bash tests/fm-decision-hold-lifecycle.test.sh   # driven to the one case
 ok - the audit's open-state verdict is true of every open shape, names no command, and changes nothing
 ```
 
-The recovery above is written in `tasks-axi` because an earlier version of it prescribed `bin/fm-decision-hold.sh hold <origin-id> <decision-key> ...`, which refuses for exactly the identities a session-start audit is most likely to name.
-`bin/fm-teardown.sh` removes `state/<origin-id>.meta` and `data/<origin-id>/`, ordinary retention then moves the closed origin task out of `data/backlog.md`, and `origin_exists_here` reads only those three, so the recorded remedy failed on contact for a decision whose origin had already ended while the identity itself was still open, still in scope through its creation body, and still named at every session start.
-The blocks below were captured on a home built into exactly that shape: the origin held and completed through this ledger, then its metadata and data deleted, then closed and driven out of `data/backlog.md` by twelve real retention closes.
-The refusal and the recovery were both run there, and the recovery was verified on all four open shapes the audit's fall-through fires on - `state=queued held=no`, `state=queued held=yes` with a non-captain `hold_kind`, `state=in_flight held=yes hold_kind=captain`, and `state=in_flight held=no` - with the unrouted and routed closes both walked.
+The recovery above is written in `tasks-axi` because an earlier version of it prescribed `bin/fm-decision-hold.sh hold <origin-id> <decision-key> ...`, which refuses once none of the three signals `origin_exists_here` reads survives.
+That earlier version also mis-stated why: it claimed teardown deletes `data/<origin-id>/` along with the metadata, and teardown does no such thing.
+The correction is recorded rather than quietly applied, because the wrong premise made the refusal sound far more common than it is.
+Teardown removes `state/<origin-id>.meta` and `state/<origin-id>.turn-ended` only, retention later archives the closed origin task, and `data/<origin-id>/report.md` survives by contract, so a scout origin that wrote its report keeps `hold` working after teardown indefinitely - which was confirmed by running it on exactly that home:
+
+```text
+$ ls data/samp/report.md ; tasks-axi show samp     # meta deleted, backlog row archived, report intact
+data/samp/report.md
+error: "Task \"samp\" not found in this backlog"
+$ bin/fm-decision-hold.sh audit
+samp-decision-route is open in a state fm-decision-hold cannot close (state=queued held=no hold_kind="-"), so no captain answer can be recorded on it while it stays there; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"
+$ bin/fm-decision-hold.sh hold samp route --title ... --reason ...   # accepted, because the report still owns the origin
+samp-decision-route
+[exit 0]
+```
+
+The blocks that follow were therefore captured on a home whose origin has none of the three: held and completed through this ledger, then its metadata deleted, its report removed, and its task closed and driven out of `data/backlog.md` by twelve real retention closes.
+That is the shape an origin which never wrote a scout report reaches on its own once teardown and retention have run, and the fixture reaches it by removing the report by hand rather than by pretending teardown did.
+The refusal and the recovery were both run there, and the recovery was verified on all four open shapes the audit's fall-through fires on - `state=queued held=no`, `state=queued held=yes` with a non-captain `hold_kind`, `state=in_flight held=yes hold_kind=captain`, and `state=in_flight held=no` - with the unrouted and routed closes both walked, and each of the four is captured below.
 Temporary fixture paths are rendered as `<home>` and the decision file as `a.txt`; everything else is verbatim.
 
 ```text
@@ -394,8 +412,8 @@ $ bin/fm-decision-hold.sh audit
 (no output)
 ```
 
-The `in_flight` shape on the same torn-down origin, with a routed task blocked behind the decision throughout.
-The refusal comes earlier here than it does for a live origin: `origin_exists_here` is checked before the queued test, so on a torn-down origin the command changes nothing at all, where on a live one it applies the captain hold and only then refuses.
+The `in_flight` shape on the same unowned origin, with a routed task blocked behind the decision throughout.
+The refusal comes earlier here than it does for an origin still owned here: `origin_exists_here` is checked before the queued test, so on an unowned origin the command changes nothing at all, where on an owned one it applies the captain hold and only then refuses.
 That is why the recovery does not route through it in either case.
 
 ```text
@@ -429,6 +447,35 @@ $ bin/fm-decision-hold.sh audit
 (no output)
 $ bin/fm-decision-hold.sh resolve samp route --decision-file a.txt --routed-to samp-route-work
 resolved: samp-decision-route -> samp-route-work
+$ bin/fm-decision-hold.sh audit
+(no output)
+```
+
+The `state=queued held=yes` shape with a non-captain `hold_kind`, where the hold was released and then re-held for something that is not the captain, so the identity blocks work without recording a captain question.
+It needs the same single restoring step as the released shape, and it is captured separately because it is the one open shape whose record already reads `held: yes`.
+
+```text
+$ tasks-axi show samp-decision-route --full | grep -E "state:|held:|hold_kind:"
+  state: queued
+  held: yes
+  hold_kind: external
+$ bin/fm-decision-hold.sh audit
+samp-decision-route is open in a state fm-decision-hold cannot close (state=queued held=yes hold_kind=external), so no captain answer can be recorded on it while it stays there; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"
+[exit 0]
+$ bin/fm-decision-hold.sh hold samp route --title ... --reason ...
+fm-decision-hold: origin samp is not owned by the active home <home>
+[exit 1]
+
+$ tasks-axi hold samp-decision-route --reason "captain route choice pending" --kind captain
+ok: hold samp-decision-route -> held (captain)
+$ tasks-axi show samp-decision-route --full | grep -E "state:|held:|hold_kind:"
+  state: queued
+  held: yes
+  hold_kind: captain
+$ bin/fm-decision-hold.sh audit
+(no output)
+$ bin/fm-decision-hold.sh answer samp route --decision-file a.txt
+answered: samp-decision-route
 $ bin/fm-decision-hold.sh audit
 (no output)
 ```
@@ -467,11 +514,11 @@ The one case was driven in isolation with the same fixtures the suite builds, fi
 # the restoring step as this section recorded it before the fix
 $ bash tests/fm-decision-hold-lifecycle.test.sh   # driven to the one case
 fm-decision-hold: origin sample-teardown-review is not owned by the active home <home>
-not ok - the recorded recovery did not restore the captain hold on a torn-down identity
+not ok - the recorded recovery did not restore the captain hold on an unowned-origin identity
 
 # the restoring steps as this section records them now
 $ bash tests/fm-decision-hold-lifecycle.test.sh   # driven to the one case
-ok - the recorded open-state recovery is followable on a torn-down origin and ends the finding
+ok - the recorded open-state recovery is followable when the origin is no longer owned here and ends the finding
 ```
 
 The same cycle for the suggestion scope, on the nearest legitimate lookalike: the captain-gated thread `AGENTS.md` section 10 prescribes, whose id merely spells the decision separator.
@@ -626,6 +673,7 @@ The point of this record is that a reader can trust its extent, so a silent redu
 
 A reader re-verifies it without knowing which commit it was written against by running each command below from the repository root and comparing the output.
 The per-suite counts say how many cases each run reported, so a truncated capture is visible as a smaller number rather than as a shorter list.
+The decision-hold suite's block below was extended rather than rewritten on the re-capture that added `the recorded open-state recovery is followable when the origin is no longer owned here and ends the finding`: every line that was already recorded is still emitted verbatim by the run that produced it, and the new one sits in its invocation position, so the block reads 27 cases where it read 26.
 
 ```text
 $ bash tests/fm-decision-hold-lifecycle.test.sh
@@ -642,6 +690,7 @@ ok - decisions answered through their owner stay silent once retention archives 
 ok - the session-start audit costs one backlog read whatever the number of healthy decisions
 ok - an audit line never denies the state it prints beside it
 ok - the audit's open-state verdict is true of every open shape, names no command, and changes nothing
+ok - the recorded open-state recovery is followable when the origin is no longer owned here and ends the finding
 ok - an unanswered decision still blocks completion and resists both unrouted close paths
 ok - captain holds are idempotent, distinct, teardown-safe, Bearings-visible, and durably routed before close
 ok - completion and verification validate origins before constructing paths
