@@ -1375,17 +1375,24 @@ test_audit_open_state_verdict_holds_for_every_open_shape() {
   second=$(run_decisions "$home" audit | grep -F "$id-decision-route")
   [ "$second" = "$line_held" ] || fail "reading the report changed what the next report says: $second"
 
-  # The recovery this document records for in_flight, run as it is written: the
-  # pair returns the identity to queued and `hold` is reached only afterwards.
-  tasks_in "$home" "done" "$id-decision-route" >/dev/null || fail "could not close the in-flight identity"
-  tasks_in "$home" reopen "$id-decision-route" >/dev/null || fail "could not return the identity to queued"
+  # The recovery this document records for in_flight, run as it is written, and
+  # checked after EVERY step rather than only at the end. No step of it may close
+  # the identity: `tasks-axi done` on a captain hold is the incident this ledger
+  # exists to detect, and while the identity is closed the routed work it gates is
+  # released and `tasks-axi ready` offers it for dispatch. The dependent is read
+  # between the steps so that a close reintroduced anywhere in this walk is caught
+  # where it happens rather than hidden by whatever restores the edge afterwards.
+  tasks_in "$home" reopen "$id-decision-route" >/dev/null \
+    || fail "could not return the in-flight identity to queued"
+  assert_contains "$(tasks_in "$home" show "$id-route-work" --full)" "blocked: yes" \
+    "the recorded recovery released the captain-gated routed work while recovering the decision"
   run_decisions "$home" hold "$id" keep --title "Choose the sample keep" \
     --reason "captain keep choice pending" --repo sample >/dev/null \
     || fail "the recorded recovery did not re-activate the released decision"
+  assert_contains "$(tasks_in "$home" show "$id-route-work" --full)" "blocked: yes" \
+    "the recorded recovery released the captain-gated routed work while recovering the decision"
   line_held=$(run_decisions "$home" audit)
   [ -z "$line_held" ] || fail "the audit still reported a decision after the recorded recovery ran: $line_held"
-  assert_contains "$(tasks_in "$home" show "$id-route-work" --full)" "blocked: yes" \
-    "the recorded recovery lost the routed task's dependency on the decision"
   run_decisions "$home" verify "$id" >/dev/null \
     || fail "the recovered decisions did not satisfy the completion gate"
   pass "the audit's open-state verdict is true of every open shape, names no command, and changes nothing"

@@ -107,8 +107,10 @@ The same `bin/fm-decision-hold.sh hold` re-holds it with `--kind captain` and cl
 
 **`state=in_flight`** - someone ran `tasks-axi start` on the identity, which `tasks-axi` accepts whether or not the captain hold is still on it, so this shape covers both `held=no hold_kind="-"` and `held=yes hold_kind=captain`.
 Do not reach for `hold` first: it refuses an identity that is not queued, but it applies the captain hold BEFORE it refuses, so a run that exits 1 still leaves the record at `held: yes` and `hold_kind: captain` and the identity no closer to closable.
-Return it to `queued` first, with `tasks-axi done <hold-id>` followed immediately by `tasks-axi reopen <hold-id>`, which preserves `hold_kind` across the pair, and then re-activate it with `bin/fm-decision-hold.sh hold` if it is not already held for the captain.
-Run the two commands as a pair and close nothing in between: the identity is momentarily closed with no resolution record, which is the shape the out-of-band-close finding names, and leaving it there is the wrong close this ledger exists to prevent.
+Return it to `queued` with `tasks-axi reopen <hold-id>`, which is the whole recovery for the held shape and the first half of it for the released one, and then re-activate it with `bin/fm-decision-hold.sh hold` if it is not already held for the captain.
+`reopen` moves a Done or In flight task back to Queued and is idempotent, so it needs nothing before it: it preserves `held` and `hold_kind` exactly as it found them, and the routed work stays blocked through every step.
+No step of this recovery closes the identity, and none may be added that does.
+Closing a captain hold with `tasks-axi done` is the incident this ledger was built to detect, it releases the routed work the hold exists to block for as long as it is closed - `tasks-axi ready` will offer that work for dispatch in the gap - and an interrupted recovery would leave exactly the closed-with-no-resolution-record shape the out-of-band-close finding names.
 Do not reach for `repair` either, and do not answer the decision under a fresh key; `repair` refuses an identity that is still open, and a fresh key strands this one in the origin's reviewed inventory where `verify` keeps refusing it.
 
 ## Answer-time closure
@@ -172,6 +174,7 @@ Routed-close remediation branch and restored verification record date: 2026-08-2
 Open-state verdict, its recovery guidance, and the re-captured lost-provenance transcript verification date: 2026-08-21.
 Open-state verdict truth across every open shape verification date: 2026-08-21.
 Red-first proof of the open-state regression, and stale-claim sweep, verification date: 2026-08-21.
+Close-free in_flight recovery and forbidden-close sweep verification date: 2026-08-21.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -193,13 +196,14 @@ A separate regression drives the real `fm-send` over a stubbed transport to prov
 The cross-origin regression drives a bound source through the real runner and adapter interface, closes full-identity holds from different origins, and proves that over-limit, malformed, non-decision, routed-work, absent-hold, and replayed answers all fail or skip without weakening the existing guards.
 
 One further regression covers the session-start audit and the wrong-close shapes it exists to name.
-It reproduces all three with the exact commands that caused them - a direct `tasks-axi done`, an `unhold` followed by `done`, and a bare `unhold` - and proves the completion gate refuses, the audit names each defect with the remediation that actually clears it, and the same findings reach a session start as `DECISION_HOLD:` lines.
+It reproduces all three with the exact commands that caused them - a direct `tasks-axi done`, an `unhold` followed by `done`, and a bare `unhold` - and proves the completion gate refuses, the audit names each defect, and the same findings reach a session start as `DECISION_HOLD:` lines.
+The two closed shapes are cleared by the `repair` invocation their own line prints, and the released one by the recovery this document records for it, because the open-state line prints no command.
 It proves `hold` and `verify` now give one verdict about one identity, that an ordinary captain-gated thread whose id merely spells the decision separator never enters the report whether it was held for the captain first or never held at all, and that the report empties only as each decision is closed with the captain's word and not before.
 The unheld close is attested by `repair` rather than left permanently unattestable, while a closed captain-kind task the script never created is still refused.
 A companion regression drives one origin id that spells the decision separator itself through the whole cycle and proves `audit`, `hold`, and `repair` reach a single verdict about that identity, so the report's own printed remediation always acts on the decision the report named.
 Two further regressions pin what makes the detector survivable in daily use.
 The cost case records every `tasks-axi` invocation the session-start audit makes and proves the count does not change when the home grows from two properly held decisions to six, while a decision closed outside its owner is still named and still re-read from its own record.
-The message case releases a hold and re-holds it for something other than the captain, and proves the printed line never denies the state printed beside it, names the `hold_kind` that makes it a defect, and clears only when the remediation it prints is actually run.
+The message case releases a hold and re-holds it for something other than the captain, and proves the printed line never denies the state printed beside it, names the `hold_kind` that makes it a defect, and clears only when the recovery this document records for that shape is actually run.
 
 A fourth drives an ordinary captain-gated thread through `hold`, `answer`, and `decline`, proves none of them names a `repair` invocation for it and that its body survives every refusal untouched, and proves all three still name the remediation for a decision this script really created.
 A fifth answers three decisions through their owner, drives real retention by closing eleven unrelated tasks until `.tasks.toml`'s `done_keep` moves them into the archive, and proves the audit and the session start both stay silent about them while `verify` still refuses the absent identity at that origin's teardown.
@@ -271,6 +275,8 @@ The state that recipe was wrong for is `in_flight`, and this is the cycle that r
 `tasks-axi` accepts `start` on a held task and its own `ready` and `show` help advertise it, so one command takes a correctly held decision to `state=in_flight held=yes hold_kind=captain` while its routed work stays blocked.
 That is the shape the block below uses, because it is the one that falsifies the most: the removed recipe applied the hold and then refused, and the wording that replaced it claimed the identity carried no active captain hold and blocked no work, both of which the fields printed beside them deny.
 The verdict now claims only what is true of every open shape, and the recovery it points at is run verbatim at the foot of the block.
+That recovery is a single `tasks-axi reopen`, recaptured after an earlier version of this document prescribed `tasks-axi done` before it.
+The block records the routed task's `blocked:` field on both sides of the command, because closing the identity would have released that work for as long as it stayed closed, and closing a captain hold by hand is the incident this whole ledger was built to detect.
 
 ```text
 $ tasks-axi start samp-decision-route        # accepted on a still-held decision
@@ -299,14 +305,16 @@ $ tasks-axi show samp-decision-route --full | grep -E "held:|hold_kind:"
   held: yes
   hold_kind: captain
 
-$ tasks-axi done samp-decision-route        # the recorded recovery for this state
-ok: done samp-decision-route -> Done
-$ tasks-axi reopen samp-decision-route
+$ tasks-axi reopen samp-decision-route      # the recorded recovery, one command, no close
 ok: reopen samp-decision-route -> Queued
-$ bin/fm-decision-hold.sh audit
-(no output)
+$ tasks-axi show samp-decision-route --full | grep -E "state:|held:|hold_kind:"
+  state: queued
+  held: yes
+  hold_kind: captain
 $ tasks-axi show samp-route-work --full | grep "blocked:"
   blocked: yes
+$ bin/fm-decision-hold.sh audit
+(no output)
 $ bin/fm-decision-hold.sh verify samp
 verified: samp unresolved-decision inventory
 ```
