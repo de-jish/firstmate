@@ -1016,16 +1016,20 @@ decision_defect() {  # <hold-id> <recorded> <origin-id> <decision-key>
     fi
     return 0
   fi
-  # This branch is the fall-through for EVERY open state that is not healthy, and
-  # it deliberately names no command. One recipe cannot be correct for all of
-  # them: `fm-decision-hold.sh hold` clears a released queued identity and, for an
-  # in_flight one, applies the hold and then refuses, leaving a partially mutated
-  # record whose next audit line denies the state printed beside it. So this
-  # states only what it read - the identity is neither actively held nor durably
-  # resolved - and hands the per-state recovery to the document that can carry all
-  # of them in one place and keep them exhaustive. A verdict surface is not a
-  # repair surface, and those were always two jobs.
-  printf '%s is open but carries no active captain hold (state=%s held=%s hold_kind=%s), so it is neither actively held nor durably resolved and therefore neither blocks work nor records an answer; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"\n' \
+  # This branch is the fall-through for EVERY open state that is not healthy, so
+  # every clause it asserts has to be true of all of them, and it names no command
+  # for the same reason. Both halves of that were learned the same way. An earlier
+  # version printed `fm-decision-hold.sh hold`, which clears a released queued
+  # identity and, for an in_flight one, applies the hold and then refuses, leaving
+  # a partially mutated record. A later one said the identity carried no active
+  # captain hold and blocked no work, which `tasks-axi start` on a healthy hold
+  # falsifies in one command: the record then reads held=yes hold_kind=captain and
+  # its dependents stay blocked. What is left is what this branch actually knows
+  # from the fields it prints - no close path in this ledger accepts the identity
+  # while it sits in that state - and the per-state recovery belongs to the
+  # document that can hold all of them at once. A verdict surface is not a repair
+  # surface, and those were always two jobs.
+  printf '%s is open in a state fm-decision-hold cannot close (state=%s held=%s hold_kind=%s), so no captain answer can be recorded on it while it stays there; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"\n' \
     "$id" "${state:--}" "${held:--}" "${hold_kind:--}"
 }
 

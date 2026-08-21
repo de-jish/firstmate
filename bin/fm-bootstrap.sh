@@ -14,7 +14,7 @@
 #                 "PR_CHECK_MIGRATION: <private remediation>",
 #                 "TANGLE: <remediation>",
 #                 "SHALLOW: <remediation>",
-#                 "DECISION_HOLD: <identity> <defect> <remediation>",
+#                 "DECISION_HOLD: <identity> <defect> [<remediation>]",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
@@ -57,9 +57,12 @@
 #          repo's own shallow marker and makes no network call; the remediation
 #          (git fetch --unshallow) is a checkout repair, so it follows TANGLE's
 #          locked/read-only wording switch.
-#          DECISION_HOLD lines are captain decisions that are neither actively held
-#          nor durably resolved. bin/fm-decision-hold.sh's `audit` owns what a valid
-#          hold state is and writes each remediation; bootstrap only prefixes its
+#          DECISION_HOLD lines are captain decisions the completion gate calls
+#          neither actively held nor durably resolved. bin/fm-decision-hold.sh's
+#          `audit` owns what a valid hold state is and decides whether a finding
+#          carries a remediation at all - it prints one only where a single command
+#          is correct for every state that finding fires on, and points at
+#          docs/decision-hold-lifecycle.md otherwise; bootstrap only prefixes its
 #          findings, so this session-start report and the teardown gate can never
 #          disagree about one identity. The audit is silent when tasks-axi cannot be
 #          read, because that is already its own MISSING line.

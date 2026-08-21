@@ -1260,7 +1260,7 @@ test_audit_line_never_contradicts_the_state_it_prints() {
     || fail "could not reproduce the non-captain rehold"
 
   out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
-  assert_contains "$out" "$id-decision-route is open but carries no active captain hold" \
+  assert_contains "$out" "$id-decision-route is open in a state fm-decision-hold cannot close" \
     "the audit stopped naming a decision that is held for something other than the captain"
   assert_contains "$out" "held=yes" "the audit hid the held state it based the finding on"
   assert_contains "$out" "hold_kind=" "the audit did not name the field that makes this a defect"
@@ -1279,20 +1279,20 @@ test_audit_line_never_contradicts_the_state_it_prints() {
 }
 
 # The open-state branch is the audit's fall-through: it fires on EVERY open state
-# a decision hold can reach, and it used to print one recipe for all of them.
-# `state=in_flight` is the state that recipe was wrong for, and wrong in the worst
-# available way. `tasks-axi ready` tells an agent to `start` a queued item, and a
-# decision hold is a queued item, so the state is reachable by following the
-# backlog tool's own advice. The printed `fm-decision-hold.sh hold` then applied
-# the hold and refused afterwards, leaving a partially mutated record whose next
-# audit line read `carries no active captain hold (state=in_flight held=yes
-# hold_kind=captain)` - a sentence denying the state printed beside it - and no
-# command in the ledger could recover the identity from there. This pins the line
-# to what a verdict may say: what it read, no command it cannot be sure of, and
-# the same answer however many times it runs. The recovery it points at is walked
-# at the end, so the document's guidance is proven followable rather than asserted.
-test_audit_open_state_verdict_names_no_command_and_mutates_nothing() {
-  local home id line second before after cmd
+# a decision hold can reach, so every clause it asserts has to be true of all of
+# them. Two versions were not. The first printed `fm-decision-hold.sh hold`, which
+# for an in_flight identity applies the hold and then refuses, leaving a partially
+# mutated record. The second said the identity carried no active captain hold and
+# blocked no work, which `tasks-axi start` on a HEALTHY hold falsifies in one
+# command - tasks-axi accepts `start` on a held task, its own `ready` and `show`
+# help advertise it, the record then reads held=yes hold_kind=captain, and the
+# dependent stays blocked. That shape is the primary subject here, because a
+# regression seeded only with the released shape asserts the fix's own code path.
+# The released shape is carried alongside it so the two can be compared: the
+# verdict's prose must be identical for both, which is what stops the sentence
+# from being tuned to whichever shape someone had in mind.
+test_audit_open_state_verdict_holds_for_every_open_shape() {
+  local home id line_held line_released prose_held prose_released before after second cmd claim
   home=$(make_home audit-open-state)
   id=sample-inflight-review
   mkdir -p "$home/data/$id"
@@ -1300,60 +1300,95 @@ test_audit_open_state_verdict_names_no_command_and_mutates_nothing() {
     || fail "could not create the in-flight origin"
   write_origin_meta "$home" "$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
-  printf '# Sample in-flight review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
+  printf '# Sample in-flight review\n\nTwo captain choices remain.\n' > "$home/data/$id/report.md"
   run_decisions "$home" hold "$id" route --title "Choose the sample route" \
     --reason "captain route choice pending" --repo sample >/dev/null \
     || fail "could not register the route hold"
-  run_decisions "$home" complete "$id" route >/dev/null \
-    || fail "completion failed while the decision was properly held"
+  run_decisions "$home" hold "$id" keep --title "Choose the sample keep" \
+    --reason "captain keep choice pending" --repo sample >/dev/null \
+    || fail "could not register the keep hold"
+  run_decisions "$home" complete "$id" route keep >/dev/null \
+    || fail "completion failed while both decisions were properly held"
+  tasks_in "$home" add "$id-route-work" "Build the sample route" --kind ship --repo sample >/dev/null \
+    || fail "could not create the routed task"
+  tasks_in "$home" block "$id-route-work" --by "$id-decision-route" >/dev/null \
+    || fail "could not route work behind the decision"
+  line_held=$(run_decisions "$home" audit) || fail "audit exited nonzero on a healthy home"
+  [ -z "$line_held" ] || fail "audit reported a defect while both decisions were properly held: $line_held"
 
-  tasks_in "$home" unhold "$id-decision-route" >/dev/null || fail "could not reproduce the unhold"
+  # Shape one: a decision that is still held for the captain, started in place.
   tasks_in "$home" start "$id-decision-route" >/dev/null || fail "could not reproduce the start"
+  # Shape two: a decision released and left open, which is the shape the earlier
+  # wording was written against.
+  tasks_in "$home" unhold "$id-decision-keep" >/dev/null || fail "could not reproduce the unhold"
 
   before=$(tasks_in "$home" show "$id-decision-route" --full)
-  line=$(run_decisions "$home" audit) || fail "audit exited nonzero on an in-flight decision"
+  line_held=$(run_decisions "$home" audit | grep -F "$id-decision-route") \
+    || fail "the audit went silent about a started captain decision"
+  line_released=$(run_decisions "$home" audit | grep -F "$id-decision-keep") \
+    || fail "the audit went silent about a released captain decision"
   after=$(tasks_in "$home" show "$id-decision-route" --full)
   [ "$before" = "$after" ] || fail "the audit changed the record it was asked only to report on"
 
-  assert_contains "$line" "$id-decision-route is open but carries no active captain hold" \
-    "the audit went silent about a decision that is neither held for the captain nor resolved"
-  assert_contains "$line" "state=in_flight" "the audit hid the state it based the finding on"
-  assert_contains "$line" "neither actively held nor durably resolved" \
-    "the open-state verdict stopped stating what is true of every state it fires on"
-  assert_contains "$line" "docs/decision-hold-lifecycle.md" \
+  # The fields the line prints are the fields the record carries, so a reader can
+  # act on them without a second lookup.
+  assert_contains "$line_held" "state=in_flight" "the audit hid the state it based the finding on"
+  assert_contains "$line_held" "held=yes" "the audit hid that the identity is still held"
+  assert_contains "$line_held" "hold_kind=captain" "the audit hid that the hold is still the captain's"
+  assert_contains "$line_released" "state=queued" "the audit misreported the released decision's state"
+  assert_contains "$line_released" "held=no" "the audit misreported the released decision's hold"
+
+  # Nothing the sentence asserts may be denied by the fields printed beside it.
+  # Each claim below is one the earlier wording made and this state falsifies.
+  for claim in "carries no active captain hold" "no longer actively held" \
+    "neither actively held" "is not held" "neither blocks work" "blocks no work"; do
+    assert_not_contains "$line_held" "$claim" \
+      "the open-state verdict denied the state it printed beside it"
+  done
+  # It really does still block work, which is why the claim above would be false.
+  assert_contains "$(tasks_in "$home" show "$id-route-work" --full)" "blocked: yes" \
+    "the routed task stopped being blocked, so this case no longer reproduces the contradiction"
+
+  # The prose is shape-independent: drop the identity and the parenthesised field
+  # group, and the two lines must be the same sentence. A verdict that reads
+  # differently for two shapes it fires on is a verdict tuned to one of them.
+  prose_held=${line_held#*), }
+  prose_released=${line_released#*), }
+  [ "$prose_held" = "$prose_released" ] \
+    || fail "the open-state verdict says different things about two shapes it fires on:"$'\n'"$prose_held"$'\n'"$prose_released"
+
+  assert_contains "$line_held" "docs/decision-hold-lifecycle.md" \
     "the open-state verdict named no owner for the recovery it declines to print"
-  assert_contains "$line" 'hold_kind="-"' "the audit hid the field that makes this a defect"
-  assert_not_contains "$line" "hold_kind=captain" \
-    "the audit claimed the decision is held for the captain while denying it in the same sentence"
-  assert_not_contains "$line" "held=yes" \
-    "the audit claimed the decision is held while reporting that it carries no active hold"
   for cmd in "fm-decision-hold.sh hold" "fm-decision-hold.sh repair" "fm-decision-hold.sh answer" \
     "fm-decision-hold.sh decline" "fm-decision-hold.sh resolve" "tasks-axi hold" "tasks-axi unhold" \
-    "tasks-axi done" "tasks-axi reopen" "tasks-axi update"; do
-    assert_not_contains "$line" "$cmd" \
+    "tasks-axi done" "tasks-axi reopen" "tasks-axi update" "tasks-axi start"; do
+    assert_not_contains "$line_held" "$cmd" \
+      "the open-state verdict handed the reader a mutating command that cannot be right for every state it fires on"
+    assert_not_contains "$line_released" "$cmd" \
       "the open-state verdict handed the reader a mutating command that cannot be right for every state it fires on"
   done
 
   if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
-    fail "verification passed a decision that is neither actively held nor durably resolved"
+    fail "verification passed a decision no close path in this ledger accepts"
   fi
 
-  second=$(run_decisions "$home" audit) || fail "audit exited nonzero on a repeat run"
-  [ "$second" = "$line" ] || fail "reading the report changed what the next report says: $second"
+  second=$(run_decisions "$home" audit | grep -F "$id-decision-route")
+  [ "$second" = "$line_held" ] || fail "reading the report changed what the next report says: $second"
 
-  # The recovery the line points at, for this state, run as the document records
-  # it: the pair returns the identity to queued, and only then can its owner
-  # re-activate it.
+  # The recovery this document records for in_flight, run as it is written: the
+  # pair returns the identity to queued and `hold` is reached only afterwards.
   tasks_in "$home" "done" "$id-decision-route" >/dev/null || fail "could not close the in-flight identity"
   tasks_in "$home" reopen "$id-decision-route" >/dev/null || fail "could not return the identity to queued"
-  run_decisions "$home" hold "$id" route --title "Choose the sample route" \
-    --reason "captain route choice pending" --repo sample >/dev/null \
-    || fail "the recorded in_flight recovery did not restore the captain hold"
-  line=$(run_decisions "$home" audit)
-  [ -z "$line" ] || fail "the audit still reported the decision after the recorded recovery ran: $line"
+  run_decisions "$home" hold "$id" keep --title "Choose the sample keep" \
+    --reason "captain keep choice pending" --repo sample >/dev/null \
+    || fail "the recorded recovery did not re-activate the released decision"
+  line_held=$(run_decisions "$home" audit)
+  [ -z "$line_held" ] || fail "the audit still reported a decision after the recorded recovery ran: $line_held"
+  assert_contains "$(tasks_in "$home" show "$id-route-work" --full)" "blocked: yes" \
+    "the recorded recovery lost the routed task's dependency on the decision"
   run_decisions "$home" verify "$id" >/dev/null \
-    || fail "the recovered decision did not satisfy the completion gate"
-  pass "the audit's open-state verdict states what it read, names no command, and changes nothing"
+    || fail "the recovered decisions did not satisfy the completion gate"
+  pass "the audit's open-state verdict is true of every open shape, names no command, and changes nothing"
 }
 
 # The incident, generalized: captain decisions were closed with `tasks-axi done`
@@ -1420,7 +1455,7 @@ test_audit_reports_decisions_closed_outside_their_owner() {
     "the audit missed the decision that was unheld before it was closed"
   assert_contains "$out" "repair $id shape --decision-file" \
     "unholding a decision left it permanently unattestable"
-  assert_contains "$out" "$id-decision-keep is open but carries no active captain hold" \
+  assert_contains "$out" "$id-decision-keep is open in a state fm-decision-hold cannot close" \
     "the audit missed the decision that was released without being closed"
   assert_not_contains "$out" "capt-decision-ui-q2" \
     "the audit reported an ordinary captain-gated thread as a decision closed outside its owner"
@@ -1431,7 +1466,7 @@ test_audit_reports_decisions_closed_outside_their_owner() {
   out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
   assert_contains "$out" "$id-decision-route was closed outside fm-decision-hold" \
     "the session-start report did not carry the audit finding"
-  assert_contains "$out" "$id-decision-keep is open but carries no active captain hold" \
+  assert_contains "$out" "$id-decision-keep is open in a state fm-decision-hold cannot close" \
     "the session-start report dropped a finding the audit made"
   assert_not_contains "$out" "capt-decision-ui-q" \
     "session start named an ordinary captain-gated thread as a wrongly closed decision"
@@ -2125,7 +2160,7 @@ test_audit_hold_and_repair_agree_on_a_nested_decision_origin
 test_correctly_resolved_decisions_stay_silent_after_retention_archives_them
 test_audit_cost_does_not_grow_with_the_decisions_it_protects
 test_audit_line_never_contradicts_the_state_it_prints
-test_audit_open_state_verdict_names_no_command_and_mutates_nothing
+test_audit_open_state_verdict_holds_for_every_open_shape
 test_unanswered_decision_still_blocks_completion_and_teardown
 test_structured_holds_survive_teardown_and_route_resolution
 test_origin_slug_validation_precedes_path_construction
