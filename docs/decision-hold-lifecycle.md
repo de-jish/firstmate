@@ -32,8 +32,11 @@ The audit reports every captain decision identity that is neither actively held 
 It is a detector and not a gate: it prints one remediation per defect, always exits 0, and stays silent when tasks-axi cannot be read at all, because bootstrap already reports that on its own line.
 It judges exactly what `data/backlog.md` still holds, and it says nothing at all about an identity retention has already archived out of it.
 That identity is not unresolved, it is unreadable: the archive is not addressable through the owner tool, so a decision the captain answered correctly and retention then archived would otherwise be reported as a defect at every session start forever, and the remediation would tell the agent to re-raise a decision that is already answered.
-Running at every session start is what puts this detection inside the window before retention closes it, and `verify` still refuses an absent identity at that origin's own teardown, which is where an agent is present to act on it.
-That is the residual gap, stated rather than papered over: an identity archived out of the backlog is outside the audit.
+That is the coverage bound, and it is worth stating as plainly as it deserves rather than as a footnote: a hold closed outside its owner AND archived out of `data/backlog.md` before any session start in this home produces no audit line, ever.
+That is the third failure of the original incident, and this detector does not catch it once retention has run.
+Two things narrow the bound without closing it, and neither is offered in place of the admission above.
+The audit runs at every session start, so the window is every wrong close that happens between one session and the further `done_keep` closes that evict it, rather than a window someone has to remember to open.
+And `verify` still refuses an absent identity at that origin's own teardown, which is where an agent is present to act on it.
 The home's recorded `decision_keys=` inventories do not extend the scan past the backlog either; they say which of the identities the backlog still holds this home owns as reviewed decisions, which is what admits one whose creation body a later write replaced.
 An identity is in scope when the home recorded it in a `decision_keys=` inventory or its own record still carries the creation body `hold` writes, and never on `hold_kind` alone, which `AGENTS.md` section 10 puts on every captain-gated thread.
 The report's remediation rewrites the body of whatever it names, so a wrong subject would not merely cry wolf: it would manufacture a resolution record on an ordinary captain thread whose id merely spells the decision separator.
@@ -162,7 +165,8 @@ A fifth answers three decisions through their owner, drives real retention by cl
 
 The transcript recorded in commit `bd041d4` is superseded, not broken.
 It is accurate evidence of what the guard emitted the day it shipped, and one of its lines no longer reproduces because the message was corrected afterwards: the released-hold finding read `is open but no longer actively held (state=queued held=no)`, which denied the state it printed whenever the identity had been re-held for something other than the captain, and it now reads `is open but carries no active captain hold (state=queued held=no hold_kind="-")`.
-The transcript below was captured by running the same commands against the shipped code.
+Every block below was captured by running the commands against the shipped code, and every command in every block was re-run against the code as it stands after the last behavioural change on this branch, which removed the audit's absent-identity verdict.
+Evidence pinned to a state that later moves is the defect this branch fixed once already, so re-running is what these blocks cost rather than re-reading them.
 
 ```text
 $ bin/fm-decision-hold.sh audit          # every decision properly held
@@ -221,6 +225,31 @@ $ bin/fm-decision-hold.sh audit
 
 $ tasks-axi show capt-decision-ui-q2 --full | grep -E "body|Resolution"
   body: Some unrelated notes.
+```
+
+The third failure of the original incident was retention, and this is the boundary it now draws.
+A decision answered through its owner and then archived by ordinary retention is silent, which is what the removal of the absent-identity verdict bought; the same silence is what the coverage bound above admits costs a wrong close that is archived before any session start.
+The `verify` path in the last command is rendered with `<home>` in place of the fixture's temporary directory and is otherwise verbatim.
+
+```text
+$ bin/fm-decision-hold.sh answer samp route --decision-file a.txt   # closed through its owner
+answered: samp-decision-route
+$ bin/fm-decision-hold.sh audit
+(no output)
+
+$ for i in 1..11; do tasks-axi add filler-$i ... && tasks-axi done filler-$i; done   # done_keep = 10
+$ grep -c samp-decision-route data/backlog.md
+0
+$ grep -c "Resolution recorded by fm-decision-hold" data/done-archive.md
+1
+
+$ bin/fm-decision-hold.sh audit
+(no output)
+$ bin/fm-bootstrap.sh | grep DECISION_HOLD
+(no output)
+$ bin/fm-decision-hold.sh verify samp    # the gate is unchanged
+fm-decision-hold: captain decision samp-decision-route is absent from <home>/data/backlog.md
+[exit 1]
 ```
 
 The final verification commands and their exact summarized outputs follow.

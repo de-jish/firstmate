@@ -58,9 +58,16 @@
 # is not unresolved; it is unreadable, because the archive is not addressable
 # through the owner tool, and a correctly answered decision archived by ordinary
 # retention would otherwise be reported as a defect at every session start
-# forever. Running at every session start is what puts this detection inside the
-# window before retention closes it, and `verify` still refuses an absent
-# identity at that origin's own teardown, where an agent is present to act.
+# forever.
+# WHAT THIS DOES NOT COVER, stated so nobody reads the guard as complete: a hold
+# closed outside its owner AND archived out of data/backlog.md before any session
+# start in this home produces no audit line, ever. That is the third failure of
+# the original incident, and this detector does not catch it once retention has
+# run. Two things narrow it without closing it. The audit runs at every session
+# start, so the window is every close that happens between one session and the
+# `done_keep` further closes that evict it, not a window someone has to remember
+# to open. And `verify` still refuses an absent identity at that origin's own
+# teardown, where an agent is present to act on it.
 # This home's recorded `decision_keys=` inventories do not extend the audit past
 # the backlog. They say which of the identities the backlog DOES hold this home
 # owns as reviewed decisions, and they carry that identity's own (origin,
@@ -703,10 +710,17 @@ EOF
   printf 'verified: %s unresolved-decision inventory\n' "$origin"
 }
 
-# Every captain-kind identity this home carries, with the extra fields a healthy
-# verdict reads. This is the audit's only unconditional tasks-axi call, so a home
-# whose decisions are all properly held costs exactly one invocation rather than
-# one per decision on the session-start path. A tasks-axi that does not know
+# Every identity this home carries, of every kind, with the extra fields a
+# healthy verdict reads. The absence of `--kind captain` here is load-bearing and
+# not an oversight: this listing is the audit's whole candidate set, so filtering
+# it to captain-kind rows would silently delete the one defect that is ABOUT the
+# kind - an identity this home recorded as a reviewed decision that is no longer
+# kind captain, which decision_defect names below. Restoring the filter would
+# look like a free cost win and would leave that detection dead with every
+# regression still green, because the cost regression measures a healthy home.
+# This is the audit's only unconditional tasks-axi call, so a home whose
+# decisions are all properly held costs exactly one invocation rather than one
+# per decision on the session-start path. A tasks-axi that does not know
 # `--fields` degrades to the plain listing, which proves nothing healthy and
 # leaves every candidate to be confirmed against its own record.
 audit_listing() {
