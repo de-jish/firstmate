@@ -29,7 +29,9 @@ The `--force` path remains the explicit captain-approved discard escape hatch.
 The `audit` subcommand is that gate's fleet-wide read-only counterpart, and `bin/fm-bootstrap.sh` prints each of its findings as a session-start `DECISION_HOLD:` line.
 It exists because `verify` only ever runs at one origin's own teardown: a home that never tore that origin down held a broken decision ledger and had no way to learn it.
 The audit reports every captain decision identity that is neither actively held nor durably resolved, reading the same fields `verify` reads, so a session-start finding and a teardown refusal can never disagree about one identity.
-It is a detector and not a gate: it prints one remediation per defect, always exits 0, and stays silent when tasks-axi cannot be read at all, because bootstrap already reports that on its own line.
+It is a detector and not a gate: it always exits 0, and stays silent when tasks-axi cannot be read at all, because bootstrap already reports that on its own line.
+A finding names a remediation only where one command is correct for every state that finding fires on, and a printed remedy is only kept where a regression walks it.
+The open-state finding fires on every open state a decision hold can reach, so it names no command and points at the recovery section below, which is the one place that can be exhaustive about them.
 It judges exactly what `data/backlog.md` still holds, and it says nothing at all about an identity retention has already archived out of it.
 That identity is not unresolved, it is unreadable: the archive is not addressable through the owner tool, so a decision the captain answered correctly and retention then archived would otherwise be reported as a defect at every session start forever, and the remediation would tell the agent to re-raise a decision that is already answered.
 That is the coverage bound, and it is worth stating as plainly as it deserves rather than as a footnote: a hold closed outside its owner AND archived out of `data/backlog.md` before any session start in this home produces no audit line, ever.
@@ -84,6 +86,25 @@ The closed-identity qualifier is load-bearing rather than decoration, because on
 That kind sentence splits on whether the record still carries a durable resolution block, because an identity that already holds a recorded captain answer must be restored rather than re-raised, and it names the `tasks-axi update` that actually clears the finding under either shape.
 The lost-provenance sentence names the same-key recovery for the same reason: `complete` recorded that key in the origin's inventory and `verify` reads that inventory, so raising the decision again under a fresh key answers the captain's question while stranding the old key, and the finding and the origin's completion gate both keep refusing.
 The refusals themselves are unchanged at every site; only the remediation a lookalike is handed changed.
+
+## Recovering an open decision hold
+
+The audit's open-state line states what it read and names no command, because that one line fires on every open state a decision hold can reach and no single recipe is correct for all of them.
+The recovery is here instead, in one place where it can be exhaustive and where correcting it corrects every caller at once.
+`hold` is the only command that re-activates an identity, and it requires the identity to be `queued`, so each state below is a matter of getting back to `queued` first.
+An identity whose `kind` drifted off `captain` is a different finding with a different line, and that line names the `tasks-axi update` that clears it.
+
+**`state=queued held=no`** - the hold was released, typically by `tasks-axi unhold`, and the decision is now invisible to the captain.
+Re-activate it with `bin/fm-decision-hold.sh hold <origin-id> <decision-key> --title "<the title it already carries>" --reason "<reason>"`, which restores the captain hold, and then close it with `resolve`, `answer`, or `decline`.
+The title must match the one the identity already carries, because `hold` refuses a changed title on an existing identity.
+
+**`state=queued held=yes` with `hold_kind` other than `captain`** - the hold was released and then re-held for something that is not the captain, so it blocks work without recording a captain question.
+The same `bin/fm-decision-hold.sh hold` re-holds it with `--kind captain` and clears the finding.
+
+**`state=in_flight`** - someone ran `tasks-axi start` on the identity, and `hold` cannot act on it in that state at all.
+Return it to `queued` with `tasks-axi done <hold-id>` followed immediately by `tasks-axi reopen <hold-id>`, which preserves `hold_kind` across the pair, and then re-activate it with `bin/fm-decision-hold.sh hold` if it is not already held for the captain.
+Run the two commands as a pair and close nothing in between: the identity is momentarily closed with no resolution record, which is the shape the out-of-band-close finding names, and leaving it there is the wrong close this ledger exists to prevent.
+Do not reach for `repair` here, and do not answer the decision under a fresh key; `repair` refuses an identity that is still open, and a fresh key strands this one in the origin's reviewed inventory where `verify` keeps refusing it.
 
 ## Answer-time closure
 
@@ -143,6 +164,7 @@ Kind-drift remediation verification date: 2026-08-20.
 Out-of-scope refusal wording and hold routing verification date: 2026-08-20.
 Lost-provenance remediation verification date: 2026-08-21.
 Routed-close remediation branch and restored verification record date: 2026-08-21.
+Open-state verdict, its recovery guidance, and the re-captured lost-provenance transcript verification date: 2026-08-21.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -171,6 +193,9 @@ A companion regression drives one origin id that spells the decision separator i
 Two further regressions pin what makes the detector survivable in daily use.
 The cost case records every `tasks-axi` invocation the session-start audit makes and proves the count does not change when the home grows from two properly held decisions to six, while a decision closed outside its owner is still named and still re-read from its own record.
 The message case releases a hold and re-holds it for something other than the captain, and proves the printed line never denies the state printed beside it, names the `hold_kind` that makes it a defect, and clears only when the remediation it prints is actually run.
+An eighth pins the open-state fall-through to what a verdict may say.
+It reaches `state=in_flight` the way an agent does, by releasing the hold and then running the `tasks-axi start` that `ready` advises for a queued item, and proves the line states what it read, names none of the ten mutating invocations the two tools offer here, points at this document, leaves the record byte-identical across the read, and gives the same answer on a repeat run rather than the self-denying second line the removed recipe produced.
+It then runs the recovery this document records for that state and proves the finding clears and the origin passes `verify`, so the guidance is proven followable rather than asserted.
 
 A fourth drives an ordinary captain-gated thread through `hold`, `answer`, and `decline`, proves none of them names a `repair` invocation for it and that its body survives every refusal untouched, and proves all three still name the remediation for a decision this script really created.
 A fifth answers three decisions through their owner, drives real retention by closing eleven unrelated tasks until `.tasks.toml`'s `done_keep` moves them into the archive, and proves the audit and the session start both stay silent about them while `verify` still refuses the absent identity at that origin's teardown.
@@ -186,6 +211,8 @@ The sixth, `test_audit_names_a_reviewed_decision_moved_off_kind_captain`, is the
 
 The transcript recorded in commit `bd041d4` is superseded, not broken.
 It is accurate evidence of what the guard emitted the day it shipped, and one of its lines no longer reproduces because the message was corrected afterwards: the released-hold finding read `is open but no longer actively held (state=queued held=no)`, which denied the state it printed whenever the identity had been re-held for something other than the captain, and it now reads `is open but carries no active captain hold (state=queued held=no hold_kind="-")`.
+That same line has since been corrected a second time, for a second reason, and the earlier wording is recorded here rather than dropped: it ended `re-activate it with fm-decision-hold.sh hold before closing it with the captain word`, which is a remedy that fires on every open state and is correct for only some of them.
+It now ends by pointing at the recovery section above, and the block below carries the current text.
 Every block below was captured by running the commands against the shipped code, at the end of the change that last touched this mechanism, under the standing rule recorded two paragraphs down.
 That rule is what keeps them current, so nothing here names the commit they were captured against - a sentence that pins evidence to a named commit goes stale the moment the next one lands, which is the defect these blocks exist to answer.
 Evidence pinned to a state that later moves is the defect this branch fixed once already, so re-running is what these blocks cost rather than re-reading them.
@@ -209,7 +236,7 @@ fm-decision-hold: captain decision samp-decision-keep is neither actively held n
 [exit 1]
 
 $ bin/fm-bootstrap.sh | grep DECISION_HOLD
-DECISION_HOLD: samp-decision-keep is open but carries no active captain hold (state=queued held=no hold_kind="-"), so it neither blocks work nor records an answer; re-activate it with fm-decision-hold.sh hold before closing it with the captain word
+DECISION_HOLD: samp-decision-keep is open but carries no active captain hold (state=queued held=no hold_kind="-"), so it is neither actively held nor durably resolved and therefore neither blocks work nor records an answer; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"
 DECISION_HOLD: samp-decision-route was closed outside fm-decision-hold with no captain decision recorded; attest the captain answer with: fm-decision-hold.sh repair samp route --decision-file <path>
 DECISION_HOLD: samp-decision-shape was closed outside fm-decision-hold with no captain decision recorded; attest the captain answer with: fm-decision-hold.sh repair samp shape --decision-file <path>
 
@@ -225,6 +252,41 @@ $ bin/fm-decision-hold.sh hold samp keep ... && ... answer samp keep --decision-
 answered: samp-decision-keep
 
 $ bin/fm-bootstrap.sh | grep DECISION_HOLD
+(no output)
+$ bin/fm-decision-hold.sh verify samp
+verified: samp unresolved-decision inventory
+```
+
+The state that recipe was wrong for is `in_flight`, and this is the cycle that removed it.
+`tasks-axi ready` tells an agent to `start` a queued item and a decision hold is a queued item, so the state is reached by following the backlog tool's own advice.
+The removed recipe applied the hold and then refused, because `hold` requires `queued`, which left a partially mutated record whose next audit line read `carries no active captain hold (state=in_flight held=yes hold_kind=captain)` - a sentence denying the state printed beside it - and nothing in the ledger could recover the identity from there.
+The verdict now states what it read, and the recovery it points at is run verbatim at the foot of the block below.
+
+```text
+$ tasks-axi unhold samp-decision-route      # released
+$ tasks-axi start samp-decision-route       # and started, as `ready` advises
+
+$ bin/fm-decision-hold.sh audit
+samp-decision-route is open but carries no active captain hold (state=in_flight held=no hold_kind="-"), so it is neither actively held nor durably resolved and therefore neither blocks work nor records an answer; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"
+[exit 0]
+$ bin/fm-decision-hold.sh audit             # again: same verdict, nothing changed
+samp-decision-route is open but carries no active captain hold (state=in_flight held=no hold_kind="-"), so it is neither actively held nor durably resolved and therefore neither blocks work nor records an answer; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"
+
+$ tasks-axi show samp-decision-route --full | grep -E "state|held|hold_kind"
+  state: in_flight
+  held: no
+  hold_kind: "-"
+$ bin/fm-decision-hold.sh verify samp
+fm-decision-hold: captain decision samp-decision-route is neither actively held nor durably resolved
+[exit 1]
+
+$ tasks-axi done samp-decision-route        # the recorded recovery for this state
+ok: done samp-decision-route -> Done
+$ tasks-axi reopen samp-decision-route
+ok: reopen samp-decision-route -> Queued
+$ bin/fm-decision-hold.sh hold samp route --title ... --reason ...
+samp-decision-route
+$ bin/fm-decision-hold.sh audit
 (no output)
 $ bin/fm-decision-hold.sh verify samp
 verified: samp unresolved-decision inventory
@@ -289,7 +351,8 @@ verified: samp unresolved-decision inventory
 
 An identity can also lose both captain-hold signals, and then `repair` cannot attest it at all, so the remediation has to rebuild the identity rather than name a command.
 It rebuilds the same one, because `complete` recorded that decision key in the origin's inventory and `verify` reads that inventory at teardown: the middle block below is the plausible wrong move, raising the decision again under a fresh key, which answers the captain's question and leaves the origin permanently unable to finish.
-The last block is the remediation the line prints, run exactly as printed.
+The last block of the first transcript is the remediation the line prints, run exactly as printed, on the unrouted branch it names.
+The line branches at its last step because the identity is held again by the time a reader reaches it, and `answer` refuses a hold that still blocks routed work, so a second transcript follows for the routed branch.
 
 ```text
 $ tasks-axi unhold samp-decision-route      # clears hold_kind
@@ -297,7 +360,7 @@ $ tasks-axi update samp-decision-route --body "Notes rewritten out of band."
 $ tasks-axi done samp-decision-route        # both signals now gone
 
 $ bin/fm-decision-hold.sh audit
-samp-decision-route was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and answer it with tasks-axi reopen samp-decision-route, then tasks-axi hold samp-decision-route --reason "<reason>" --kind captain, then fm-decision-hold.sh answer samp route --decision-file <path>; raising the decision again under a new key strands samp-decision-route in samp's reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate
+samp-decision-route was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and record the captain answer on it with tasks-axi reopen samp-decision-route, then tasks-axi hold samp-decision-route --reason "<reason>" --kind captain, then fm-decision-hold.sh resolve samp route --decision-file <path> --routed-to <task-id> while that hold still blocks routed work, or fm-decision-hold.sh answer samp route --decision-file <path> once nothing is blocked by it; raising the decision again under a new key strands samp-decision-route in samp's reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate
 $ bin/fm-decision-hold.sh repair samp route --decision-file a.txt
 fm-decision-hold: backlog item samp-decision-route was never held for the captain; repair records a captain decision only on a captain hold
 [exit 1]
@@ -308,12 +371,37 @@ $ bin/fm-decision-hold.sh verify samp        # the new key changed nothing here
 fm-decision-hold: captain decision samp-decision-route is neither actively held nor durably resolved
 [exit 1]
 $ bin/fm-decision-hold.sh audit
-samp-decision-route was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and answer it with tasks-axi reopen samp-decision-route, then tasks-axi hold samp-decision-route --reason "<reason>" --kind captain, then fm-decision-hold.sh answer samp route --decision-file <path>; raising the decision again under a new key strands samp-decision-route in samp's reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate
+samp-decision-route was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and record the captain answer on it with tasks-axi reopen samp-decision-route, then tasks-axi hold samp-decision-route --reason "<reason>" --kind captain, then fm-decision-hold.sh resolve samp route --decision-file <path> --routed-to <task-id> while that hold still blocks routed work, or fm-decision-hold.sh answer samp route --decision-file <path> once nothing is blocked by it; raising the decision again under a new key strands samp-decision-route in samp's reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate
 
 $ tasks-axi reopen samp-decision-route                                              # the printed remediation
 $ tasks-axi hold samp-decision-route --reason "captain route choice pending" --kind captain
 $ bin/fm-decision-hold.sh answer samp route --decision-file a.txt
 answered: samp-decision-route
+$ bin/fm-decision-hold.sh audit
+(no output)
+$ bin/fm-decision-hold.sh verify samp
+verified: samp unresolved-decision inventory
+```
+
+The routed branch of the same line, on an identity whose decision still blocks a dependent task.
+The `answer` step is run first here and refuses, which is what the branch exists to answer: the same three-step recovery ends in `resolve` when routed work is still blocked, and the line names both because a reader cannot know which one they are in until they are standing there.
+
+```text
+$ tasks-axi block samp-route-work --by samp-decision-route     # the decision routes work
+$ tasks-axi unhold samp-decision-route
+$ tasks-axi update samp-decision-route --body "Notes rewritten out of band."
+$ tasks-axi done samp-decision-route
+
+$ bin/fm-decision-hold.sh audit
+samp-decision-route was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and record the captain answer on it with tasks-axi reopen samp-decision-route, then tasks-axi hold samp-decision-route --reason "<reason>" --kind captain, then fm-decision-hold.sh resolve samp route --decision-file <path> --routed-to <task-id> while that hold still blocks routed work, or fm-decision-hold.sh answer samp route --decision-file <path> once nothing is blocked by it; raising the decision again under a new key strands samp-decision-route in samp's reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate
+
+$ tasks-axi reopen samp-decision-route                                              # the printed remediation
+$ tasks-axi hold samp-decision-route --reason "captain route choice pending" --kind captain
+$ bin/fm-decision-hold.sh answer samp route --decision-file a.txt                   # the branch that does not apply here
+fm-decision-hold: captain hold samp-decision-route still blocks routed work (samp-route-work); use resolve to record that work
+[exit 1]
+$ bin/fm-decision-hold.sh resolve samp route --decision-file a.txt --routed-to samp-route-work
+resolved: samp-decision-route -> samp-route-work
 $ bin/fm-decision-hold.sh audit
 (no output)
 $ bin/fm-decision-hold.sh verify samp
@@ -371,6 +459,7 @@ ok - audit, hold, and repair give one verdict about an origin id that spells the
 ok - decisions answered through their owner stay silent once retention archives them, while verify still refuses at teardown
 ok - the session-start audit costs one backlog read whatever the number of healthy decisions
 ok - an audit line never denies the state it prints beside it
+ok - the audit's open-state verdict states what it read, names no command, and changes nothing
 ok - an unanswered decision still blocks completion and resists both unrouted close paths
 ok - captain holds are idempotent, distinct, teardown-safe, Bearings-visible, and durably routed before close
 ok - completion and verification validate origins before constructing paths

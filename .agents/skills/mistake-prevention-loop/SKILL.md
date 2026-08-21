@@ -86,6 +86,7 @@ Each of these is a way of appearing to close the loop without closing it.
 - Fixing the instance and deferring the prevention.
 - Treating the captain noticing as the correction, rather than as evidence the loop was missing.
 - Shipping a guard whose printed remediation is destructive when its scope is wrong.
+- Printing a remedy no test walks, or one restated at each site that names it.
 - Fixing the site a finding names when the finding is really about a class, instead of sweeping for the class first.
 - Accepting a behavioural remedy - "I will remember to X", "next time I will check Y" - as the prevention.
 
@@ -99,6 +100,12 @@ The session-start captain-decision audit in `bin/fm-decision-hold.sh` is the wor
 Two checks follow from it.
 Before shipping a guard, ask what its printed remediation does when the scope is wrong, and scope on signals the guard's own owner writes rather than on ones any neighboring workflow also writes.
 Then prove the scope on the nearest legitimate lookalike, not on the failing case alone: a guard proven only against the mistake it was written for has been shown to fire, never shown to hold its edge.
+
+A printed remedy earns its place only if a test walks it; everything else states what is true and points at the owner.
+That is the division of labour the two halves of a guard already have: the code says what it knows, and the doc says what to do.
+A remedy restated at each call site cannot be kept exhaustive or tested, because each site carries its own copy and only the copy someone happened to look at gets corrected, while one kept in a single place can be both.
+The same audit's open-state line is the worked example on this side: it fired on every open state that was not healthy and printed one recipe, which cleared a released identity, failed for an `in_flight` one after partially mutating it, and then denied the state it printed beside it - three review rounds each found a different state it was wrong for, which is the enumeration trap rather than bad luck.
+It now states what it read and points at the document that carries the recovery for every open state in one place.
 
 The sweep one costs a review round per site left standing.
 Some defects are a class rather than a place: a remediation gated on the wrong test, a control that cannot fire, a claim pinned to something that moves.

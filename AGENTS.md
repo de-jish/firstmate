@@ -546,7 +546,6 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `firstmate-codexapp` - load before coordinating a visible Codex Desktop thread, evaluating a Codex App backend request, or reconciling Codex Desktop host-tool smoke evidence for Firstmate work.
 - `firstmate-coding-guidelines` - load before changing firstmate's shared, tracked material, as defined by section 1's list, whether editing directly or briefing a crewmate for a firstmate-repo task.
 - `mistake-prevention-loop` - load when a repository gate, guard, or script refuses one of firstmate's own actions, when a review or validation finding against firstmate's own conduct or instructions is confirmed, when the captain corrects firstmate or points out something firstmate got wrong, or when firstmate needs a recovery path because of its own earlier error.
-  Every one of those endings owes the shared surface a prevention, not just a fixed instance.
 
 ## 14. Relay
 

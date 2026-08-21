@@ -1016,7 +1016,16 @@ decision_defect() {  # <hold-id> <recorded> <origin-id> <decision-key>
     fi
     return 0
   fi
-  printf '%s is open but carries no active captain hold (state=%s held=%s hold_kind=%s), so it neither blocks work nor records an answer; re-activate it with fm-decision-hold.sh hold before closing it with the captain word\n' \
+  # This branch is the fall-through for EVERY open state that is not healthy, and
+  # it deliberately names no command. One recipe cannot be correct for all of
+  # them: `fm-decision-hold.sh hold` clears a released queued identity and, for an
+  # in_flight one, applies the hold and then refuses, leaving a partially mutated
+  # record whose next audit line denies the state printed beside it. So this
+  # states only what it read - the identity is neither actively held nor durably
+  # resolved - and hands the per-state recovery to the document that can carry all
+  # of them in one place and keep them exhaustive. A verdict surface is not a
+  # repair surface, and those were always two jobs.
+  printf '%s is open but carries no active captain hold (state=%s held=%s hold_kind=%s), so it is neither actively held nor durably resolved and therefore neither blocks work nor records an answer; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"\n' \
     "$id" "${state:--}" "${held:--}" "${hold_kind:--}"
 }
 
