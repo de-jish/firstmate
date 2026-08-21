@@ -541,15 +541,37 @@ decision_hold_in_scope() {  # <show-output> <origin-id> <decision-key>
 # ever be recorded on it, because `repair` reads a wider signal and may well
 # accept an identity this rule declines to hand a command to.
 refuse_outside_decision_scope() {  # <hold-id>
-  fail "backlog item $1 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record no longer carries the creation body hold writes, so this command offers no remediation for it"
+  fail "backlog item $1 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record does not carry the creation body hold writes, so this command offers no remediation for it"
+}
+
+# The kind-drift verdict, owned once because two surfaces print it and they must
+# never diverge about one identity. It splits on the only thing that changes what
+# the reader should do. A record that still carries a durable resolution block
+# holds an answer the captain already gave, so the remediation restores the
+# identity and never invites anyone to raise that question again - losing a
+# recorded captain decision is the harm this whole ledger exists to prevent. A
+# record with no such block is ordinary work wearing a decision identity, which
+# does want its own id. Both name the state that actually clears the finding,
+# because a remediation nobody can follow to silence leaves the line printing at
+# every session start forever.
+kind_drift_verdict() {  # <hold-id> <kind> <body>
+  local id=$1 kind=${2:--} body=$3
+  if body_has_resolution_record "$body"; then
+    printf '%s carries a captain decision that was answered and recorded, and its kind drifted to %s, which is why verify and every close path refuse it; restore the identity with tasks-axi update %s --kind captain rather than raising the decision again' \
+      "$id" "$kind" "$id"
+    return 0
+  fi
+  printf '%s carries a reviewed captain decision identity but is kind %s, so it cannot hold a captain decision; give that work its own identity and restore this one with tasks-axi update %s --kind captain' \
+    "$id" "$kind" "$id"
 }
 
 # The whole refusal for an identity that is closed with no resolution record,
-# owned here so every gate that meets that state gives one verdict about one
-# identity. No caller carries its own copy of a clause about a CLOSED identity;
-# every one of them routes here, and `audit` prints the same verdicts in the
-# detector's register, so one identity gets one sentence whichever surface a
-# reader meets first.
+# owned here so the surfaces that route to it give one verdict about one
+# identity. `hold`, `answer`, and `decline` all reach it for a closed identity
+# and none of them carries its own copy of a clause about that state, and `audit`
+# prints the same verdicts in the detector's register, so one identity gets one
+# sentence across those four. `resolve` and `verify` refuse a closed identity
+# with their own wording and do not route here.
 #
 # THIS GATE IS DELIBERATELY NARROWER THAN `repair`, AND THE ASYMMETRY MUST STAY.
 # It answers "should this identity be handed a repair command", not "would repair
@@ -567,7 +589,7 @@ refuse_out_of_band_close() {  # <show-output> <hold-id> <origin-id> <decision-ke
   decision_hold_in_scope "$show" "$origin" "$key" || refuse_outside_decision_scope "$id"
   kind=$(show_field "$show" kind)
   [ "$kind" = captain ] \
-    || fail "$id carries a reviewed captain decision identity but is kind ${kind:--}, so it cannot hold a captain decision; give that work its own identity"
+    || fail "$(kind_drift_verdict "$id" "$kind" "$(show_field "$show" body)")"
   captain_hold_provenance "$show" "$origin" "$key" \
     || fail "captain decision $id was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it; raise the decision again under a new decision key"
   fail "captain decision $id was closed outside fm-decision-hold with no captain decision recorded; attest the captain's answer with: fm-decision-hold.sh repair $origin $key --decision-file <path>"
@@ -962,8 +984,7 @@ decision_defect() {  # <hold-id> <recorded> <origin-id> <decision-key>
     [ "$(hold_id "$origin" "$key")" = "$id" ] || return 0
   fi
   if [ "$kind" != captain ]; then
-    printf '%s carries a reviewed captain decision identity but is kind %s, so it cannot hold a captain decision; give that work its own identity\n' \
-      "$id" "${kind:--}"
+    printf '%s\n' "$(kind_drift_verdict "$id" "$kind" "$body")"
     return 0
   fi
   if [ "$state" = "done" ]; then

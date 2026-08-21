@@ -917,8 +917,14 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
     fi
     assert_no_grep "no captain decision recorded" "$drifted/depth-$surface.err" \
       "$surface said no captain decision was recorded while the record is still there"
-    assert_grep "but is kind ship" "$drifted/depth-$surface.err" \
+    assert_grep "kind drifted to ship" "$drifted/depth-$surface.err" \
       "$surface did not name the kind that makes this a defect"
+    assert_grep "answered and recorded" "$drifted/depth-$surface.err" \
+      "$surface described a recorded captain answer as if it were missing"
+    assert_no_grep "give that work its own identity" "$drifted/depth-$surface.err" \
+      "$surface told the agent to abandon a captain decision that is on the record"
+    assert_grep "tasks-axi update $id-decision-depth --kind captain" "$drifted/depth-$surface.err" \
+      "$surface did not name the action that clears the finding"
   done
 
   # Out of scope but attestable: `hold` created this identity, an out-of-band
@@ -1304,6 +1310,10 @@ test_audit_names_a_reviewed_decision_moved_off_kind_captain() {
   out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
   assert_contains "$out" "$id-decision-shape carries a reviewed captain decision identity but is kind ship" \
     "session start did not carry the finding the audit made"
+  # The printed remediation must be the action that actually silences the line,
+  # or the agent follows it faithfully and the session start reports forever.
+  assert_contains "$out" "tasks-axi update $id-decision-shape --kind captain" \
+    "session start named no action that clears the finding it reported"
   if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
     fail "verification passed a reviewed decision that is no longer kind captain"
   fi

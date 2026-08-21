@@ -74,11 +74,13 @@ Because a successful repair replaces that creation body, the already-repaired re
 
 `hold_kind` is enough for `repair` to act on an identity the caller named itself, and it is never enough for another command to name that identity to the caller.
 Acting and suggesting are different questions because a suggestion is followed: a printed `repair` invocation that lands on the wrong subject records a captain decision no captain gave, which is the harm the whole ledger exists to prevent.
-So `hold`, `answer`, and `decline` reach one shared gate before they print a `repair` invocation, and no caller carries its own copy of a clause about a closed identity.
+So `hold`, `answer`, and `decline` reach one shared gate before they print a `repair` invocation, and none of those three carries its own copy of a clause about a closed identity.
+`resolve` and `verify` refuse a closed identity with their own wording and do not route through that gate.
 That gate asks `repair`'s own kind and provenance preconditions, so it never names a command `repair` would refuse, PLUS a suggestion-scope rule `repair` deliberately does not have.
 It therefore answers a narrower question than `repair` does - should this identity be handed a repair command, not would `repair` accept it - and the reasoning for keeping that asymmetry lives beside the gate in `bin/fm-decision-hold.sh`, because that is where someone would be tempted to tidy it away.
 An identity the scope rule declines is refused with a text that states only what the rule tested, and never asserts what `repair` would do with it, because `repair` reads a wider signal and may well accept it.
-An identity that fails any of them is refused with a shared text that names no mutating command, and the kind refusal is the audit's own sentence verbatim, so one identity gets one verdict whichever surface a reader meets first.
+An identity that fails any of them is refused with a shared text that names no mutating command, and the kind refusal is the audit's own sentence verbatim, so one identity gets one verdict across those four surfaces.
+That kind sentence splits on whether the record still carries a durable resolution block, because an identity that already holds a recorded captain answer must be restored rather than re-raised, and it names the `tasks-axi update` that actually clears the finding under either shape.
 The refusals themselves are unchanged at every site; only the remediation a lookalike is handed changed.
 
 ## Answer-time closure
@@ -135,6 +137,7 @@ Remediation-suggestion scope verification date: 2026-08-20.
 Archived-resolution silence verification date: 2026-08-20.
 Kind-drift detection verification date: 2026-08-20.
 Repair-suggestion gate completeness verification date: 2026-08-20.
+Kind-drift remediation verification date: 2026-08-20.
 Out-of-scope refusal wording and hold routing verification date: 2026-08-20.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
@@ -176,7 +179,8 @@ That case is the one regression that fails if a `--kind captain` filter is ever 
 
 The transcript recorded in commit `bd041d4` is superseded, not broken.
 It is accurate evidence of what the guard emitted the day it shipped, and one of its lines no longer reproduces because the message was corrected afterwards: the released-hold finding read `is open but no longer actively held (state=queued held=no)`, which denied the state it printed whenever the identity had been re-held for something other than the captain, and it now reads `is open but carries no active captain hold (state=queued held=no hold_kind="-")`.
-Every block below was captured by running the commands against the shipped code, and every command in every block was re-run against the code as it stands after the last behavioural change on this branch, which removed the audit's absent-identity verdict.
+Every block below was captured by running the commands against the shipped code, at the end of the change that last touched this mechanism, under the standing rule recorded two paragraphs down.
+That rule is what keeps them current, so nothing here names the commit they were captured against - a sentence that pins evidence to a named commit goes stale the moment the next one lands, which is the defect these blocks exist to answer.
 Evidence pinned to a state that later moves is the defect this branch fixed once already, so re-running is what these blocks cost rather than re-reading them.
 
 Where this transcript lives is settled, and it is recorded here so a future reader does not re-derive it.
@@ -228,13 +232,13 @@ $ tasks-axi hold capt-decision-ui-q2 --reason "captain UI choice pending" --kind
 $ tasks-axi done capt-decision-ui-q2
 
 $ bin/fm-decision-hold.sh hold capt ui-q2 --title ... --reason ...
-fm-decision-hold: backlog item capt-decision-ui-q2 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record no longer carries the creation body hold writes, so this command offers no remediation for it
+fm-decision-hold: backlog item capt-decision-ui-q2 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record does not carry the creation body hold writes, so this command offers no remediation for it
 [exit 1]
 $ bin/fm-decision-hold.sh answer capt ui-q2 --decision-file d.txt
-fm-decision-hold: backlog item capt-decision-ui-q2 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record no longer carries the creation body hold writes, so this command offers no remediation for it
+fm-decision-hold: backlog item capt-decision-ui-q2 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record does not carry the creation body hold writes, so this command offers no remediation for it
 [exit 1]
 $ bin/fm-decision-hold.sh decline capt ui-q2 --decision-file d.txt
-fm-decision-hold: backlog item capt-decision-ui-q2 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record no longer carries the creation body hold writes, so this command offers no remediation for it
+fm-decision-hold: backlog item capt-decision-ui-q2 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record does not carry the creation body hold writes, so this command offers no remediation for it
 [exit 1]
 $ bin/fm-decision-hold.sh audit
 (no output)
@@ -245,6 +249,7 @@ $ tasks-axi show capt-decision-ui-q2 --full | grep -E "body|Resolution"
 
 An identity can also drift off kind `captain` after the fact, and `repair` refuses on kind before it reads anything else, so every surface that would name `repair` asks that too and gives the audit's own sentence.
 The second half below is the shape that makes a partial gate say something false rather than merely unhelpful: the decision really was answered through its owner, and its resolution record is still on the record.
+That is also why the kind sentence names restoring the identity rather than giving the work a new one: the captain's answer is already recorded, and the last command below is the remediation the line printed, which is what silences it.
 
 ```text
 $ bin/fm-decision-hold.sh answer samp route --decision-file a.txt   # answered through its owner
@@ -254,21 +259,21 @@ $ tasks-axi update samp-decision-route --kind ship                 # moved off k
 $ tasks-axi show samp-decision-route --full | grep -c "Resolution recorded by fm-decision-hold."
 1
 $ bin/fm-decision-hold.sh audit
-samp-decision-route carries a reviewed captain decision identity but is kind ship, so it cannot hold a captain decision; give that work its own identity
+samp-decision-route carries a captain decision that was answered and recorded, and its kind drifted to ship, which is why verify and every close path refuse it; restore the identity with tasks-axi update samp-decision-route --kind captain rather than raising the decision again
 $ bin/fm-decision-hold.sh hold samp route --title ... --reason ...
-fm-decision-hold: samp-decision-route carries a reviewed captain decision identity but is kind ship, so it cannot hold a captain decision; give that work its own identity
+fm-decision-hold: samp-decision-route carries a captain decision that was answered and recorded, and its kind drifted to ship, which is why verify and every close path refuse it; restore the identity with tasks-axi update samp-decision-route --kind captain rather than raising the decision again
 [exit 1]
 $ bin/fm-decision-hold.sh answer samp route --decision-file a.txt
-fm-decision-hold: samp-decision-route carries a reviewed captain decision identity but is kind ship, so it cannot hold a captain decision; give that work its own identity
+fm-decision-hold: samp-decision-route carries a captain decision that was answered and recorded, and its kind drifted to ship, which is why verify and every close path refuse it; restore the identity with tasks-axi update samp-decision-route --kind captain rather than raising the decision again
 [exit 1]
 $ bin/fm-decision-hold.sh decline samp route --decision-file a.txt
-fm-decision-hold: samp-decision-route carries a reviewed captain decision identity but is kind ship, so it cannot hold a captain decision; give that work its own identity
+fm-decision-hold: samp-decision-route carries a captain decision that was answered and recorded, and its kind drifted to ship, which is why verify and every close path refuse it; restore the identity with tasks-axi update samp-decision-route --kind captain rather than raising the decision again
 [exit 1]
 $ bin/fm-decision-hold.sh repair samp route --decision-file a.txt
 fm-decision-hold: backlog item samp-decision-route is not kind captain
 [exit 1]
 
-$ tasks-axi update samp-decision-route --kind captain              # revert
+$ tasks-axi update samp-decision-route --kind captain              # the remediation the line named
 $ bin/fm-decision-hold.sh audit
 (no output)
 $ bin/fm-decision-hold.sh verify samp
