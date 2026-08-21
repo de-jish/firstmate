@@ -161,6 +161,12 @@
 # neither and is still refused; the widened evidence base is what keeps a hold
 # that was unheld out of band from becoming permanently unattestable, and with it
 # permanently unable to pass its origin's completion gate.
+# `hold_kind` alone is enough for `repair` to ACT on an identity the caller named
+# itself, and never enough for another command to NAME that identity to the
+# caller: every refusal that would print a `repair` invocation asks
+# decision_hold_in_scope first, because a suggestion is followed. Any captain-gated
+# thread carries `hold_kind`, so a suggestion gated on it would hand the agent a
+# command that records a captain decision on work no captain ever decided.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -488,6 +494,41 @@ creation_body_identity() {  # <body>
   printf '%s\t%s\n' "$origin" "$key"
 }
 
+# Does this home's own metadata record <decision-key> among <origin-id>'s
+# reviewed decisions? That inventory is written by `complete` and nothing else.
+inventory_records_decision() {  # <origin-id> <decision-key>
+  local meta="$STATE/$1.meta"
+  [ -f "$meta" ] || return 1
+  list_has_key "$(meta_value "$meta" decision_keys)" "$2"
+}
+
+# THE scope rule of this ledger, stated once because several surfaces must agree
+# about one identity and any second statement of it would drift. An identity is a
+# captain decision hold when this home recorded it in a `decision_keys=`
+# inventory, or when its own record still carries the creation body `hold` wrote
+# for exactly that pair. Both are written by this script alone.
+# tasks-axi's hold_kind is deliberately NOT part of it: AGENTS.md section 10
+# prescribes `tasks-axi hold <id> --kind captain` for ANY captain-gated thread,
+# so an ordinary thread whose id merely spells the decision separator carries it
+# too. Every surface that would name a state-mutating remediation asks this
+# first, because a suggested `repair` that lands on the wrong subject writes a
+# captain decision no captain gave - the refusal itself is never in question.
+decision_hold_in_scope() {  # <show-output> <origin-id> <decision-key>
+  local show=$1 origin=$2 key=$3 pair
+  if inventory_records_decision "$origin" "$key"; then
+    return 0
+  fi
+  pair=$(creation_body_identity "$(show_field "$show" body)") || return 1
+  [ "$pair" = "$origin"$'\t'"$key" ]
+}
+
+# The refusal every surface gives for an identity outside that rule. One text and
+# one owner, so two surfaces cannot describe the same identity differently, and
+# none of them names a command that would write to it.
+refuse_outside_decision_scope() {  # <hold-id>
+  fail "backlog item $1 is an ordinary captain-gated backlog item rather than a captain decision hold this script created, so no captain decision can be recorded on it; raise the decision again under a new decision key"
+}
+
 command_hold() {
   local origin=${1:-} key=${2:-} title='' reason='' repo='' id show state kind existing_title body
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
@@ -524,6 +565,7 @@ command_hold() {
       if body_has_resolution_record "$body"; then
         fail "captain decision $id is already durably resolved; use a new decision key for a new decision"
       fi
+      decision_hold_in_scope "$show" "$origin" "$key" || refuse_outside_decision_scope "$id"
       captain_hold_provenance "$show" "$origin" "$key" \
         || fail "captain decision $id was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it; raise the decision again under a new decision key"
       fail "captain decision $id was closed outside fm-decision-hold with no captain decision recorded; attest the captain's answer with: fm-decision-hold.sh repair $origin $key --decision-file <path>"
@@ -848,20 +890,19 @@ decision_defect() {  # <hold-id> <recorded> <origin-id> <decision-key>
   if [ "$state" = "done" ] && [ "$kind" = captain ] && body_has_resolution_record "$body"; then
     return 0
   fi
-  # Scope. This ledger owns an identity that this home recorded as a reviewed
-  # decision, or whose own record still carries the creation body `hold` writes.
-  # Both are written by this script alone. tasks-axi's hold_kind is not: AGENTS.md
-  # section 10 prescribes `tasks-axi hold <id> --kind captain` for ANY captain-gated
-  # thread, so scoping on it would pull an ordinary captain thread whose id merely
-  # spells the decision separator into a report whose remediation rewrites its body.
-  # `repair` still reads the wider provenance, because there the identity is the
-  # caller's own argument rather than something this scan decided to name.
+  # Scope, through the one rule decision_hold_in_scope owns and every surface
+  # that can name a remediation shares. The pair it is asked about is the pair
+  # this home recorded, or the pair the record's own creation body names, and
+  # never a re-split of the joined id. `repair` still reads the wider provenance,
+  # because there the identity is the caller's own argument rather than something
+  # this scan decided to name.
   if [ "$recorded" != 1 ]; then
     pair=$(creation_body_identity "$body") || return 0
     origin=${pair%%$'\t'*}
     key=${pair#*$'\t'}
     [ "$(hold_id "$origin" "$key")" = "$id" ] || return 0
   fi
+  decision_hold_in_scope "$show" "$origin" "$key" || return 0
   if [ "$kind" != captain ]; then
     printf '%s carries a reviewed captain decision identity but is kind %s, so it cannot hold a captain decision; give that work its own identity\n' \
       "$id" "${kind:--}"
@@ -1018,8 +1059,10 @@ close_unrouted_hold() {  # <mode> <outcome-word> <origin-id> <decision-key> <fla
   fi
   hold_show=$(task_show "$id") || fail "captain hold $id is absent from $FM_HOME/data/backlog.md"
   state=$(show_field "$hold_show" state)
-  [ "$state" != "done" ] \
-    || fail "captain hold $id was closed outside fm-decision-hold; use repair to record the captain decision"
+  if [ "$state" = "done" ]; then
+    decision_hold_in_scope "$hold_show" "$origin" "$key" || refuse_outside_decision_scope "$id"
+    fail "captain hold $id was closed outside fm-decision-hold; attest the captain's answer with: fm-decision-hold.sh repair $origin $key --decision-file <path>"
+  fi
   verify_hold_active "$id"
   hold_body=$(show_field "$hold_show" body)
   case "$hold_body" in

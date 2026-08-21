@@ -41,7 +41,9 @@ Because it runs at every session start, the audit's price may not rise with the 
 One `tasks-axi list --kind captain --fields held,hold_kind,body` call carries the fields a healthy verdict reads, and every identity that listing proves properly held or durably resolved leaves the scan without a further call, so a healthy home costs one backlog read rather than one per decision.
 The listing decides only what to SKIP.
 Nothing is reported on listing evidence: whatever it does not prove healthy is re-read from its own record before a line is printed, so a quoted title, an escaped body, or a body the listing truncated can cost a confirmation call and can never manufacture a finding.
-`bin/fm-bootstrap.sh` brackets the sweep with the same elapsed-time record the deferred network owners use, so that cost stays answerable from the durable timing record.
+That bound is a property of the construction rather than something measured at run time, and the regression pins the count.
+The sweep carries no elapsed-time record and cannot from where it runs: `bin/fm-timing-lib.sh` records only while `FM_TIMING_LOG` names a file, the deferred network stage is the only thing that allocates one, and it does so while invoking `bin/fm-bootstrap.sh` with `FM_BOOTSTRAP_NETWORK=only`, which is the one phase that skips the local detection this sweep belongs to.
+A bracket there would never fire on a run a home actually makes, and an instrument that cannot fire is worse than none, because the next reader takes it for coverage and stops looking.
 
 The `resolve`, `answer`, and `decline` subcommands close active holds, while `repair` attests a hold already closed outside the script.
 All four require a non-empty captain decision file and record the same resolution block in the hold body with the decision digest, routed identities, and a `Resolution mode:` naming the path.
@@ -63,6 +65,11 @@ Provenance is two signals, because an out-of-band close can erase either one on 
 `tasks-axi` preserves `hold_kind` through a close but clears it on `unhold`, while the creation body `hold` itself writes survives `unhold`.
 Both are written only by `hold`, so an identity this script never created still carries neither and is still refused; widening the evidence base is what keeps a decision that was unheld out of band from becoming permanently unattestable, and with it permanently unable to pass its origin's completion gate.
 Because a successful repair replaces that creation body, the already-repaired retry is settled before provenance is read, so an exact retry stays idempotent for every hold rather than only for the ones that kept their `hold_kind`.
+
+`hold_kind` is enough for `repair` to act on an identity the caller named itself, and it is never enough for another command to name that identity to the caller.
+Acting and suggesting are different questions because a suggestion is followed: a printed `repair` invocation that lands on the wrong subject records a captain decision no captain gave, which is the harm the whole ledger exists to prevent.
+So `hold`, `answer`, and `decline` each ask the same scope question the audit asks before they print a `repair` invocation, and an identity outside that scope is refused with one shared text that names no mutating command.
+The refusals themselves are unchanged at every site; only the remediation a lookalike is handed changed.
 
 ## Answer-time closure
 
@@ -114,6 +121,7 @@ Unrouted close-path verification date: 2026-08-13.
 Answer-time closure verification date: 2026-08-16.
 Cross-origin answer-time closure verification date: 2026-08-19.
 Session-start audit and out-of-band-close provenance verification date: 2026-08-20.
+Remediation-suggestion scope verification date: 2026-08-20.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -143,6 +151,73 @@ Two further regressions pin what makes the detector survivable in daily use.
 The cost case records every `tasks-axi` invocation the session-start audit makes and proves the count does not change when the home grows from two properly held decisions to six, while a decision closed outside its owner is still named and still re-read from its own record.
 The message case releases a hold and re-holds it for something other than the captain, and proves the printed line never denies the state printed beside it, names the `hold_kind` that makes it a defect, and clears only when the remediation it prints is actually run.
 
+A fourth drives an ordinary captain-gated thread through `hold`, `answer`, and `decline`, proves none of them names a `repair` invocation for it and that its body survives every refusal untouched, and proves all three still name the remediation for a decision this script really created.
+
+### Reproduce, catch, revert, as of 2026-08-20
+
+The transcript recorded in commit `bd041d4` is superseded, not broken.
+It is accurate evidence of what the guard emitted the day it shipped, and one of its lines no longer reproduces because the message was corrected afterwards: the released-hold finding read `is open but no longer actively held (state=queued held=no)`, which denied the state it printed whenever the identity had been re-held for something other than the captain, and it now reads `is open but carries no active captain hold (state=queued held=no hold_kind="-")`.
+The transcript below was captured by running the same commands against the shipped code.
+
+```text
+$ bin/fm-decision-hold.sh audit          # every decision properly held
+(no output)
+
+$ tasks-axi done samp-decision-route     # closed outside its owner
+$ tasks-axi unhold samp-decision-shape
+$ tasks-axi done samp-decision-shape     # unheld, then closed
+$ tasks-axi unhold samp-decision-keep    # released, never closed
+
+$ bin/fm-decision-hold.sh verify samp    # the old gate, at teardown only
+fm-decision-hold: captain decision samp-decision-keep is neither actively held nor durably resolved
+[exit 1]
+
+$ bin/fm-bootstrap.sh | grep DECISION_HOLD
+DECISION_HOLD: samp-decision-keep is open but carries no active captain hold (state=queued held=no hold_kind="-"), so it neither blocks work nor records an answer; re-activate it with fm-decision-hold.sh hold before closing it with the captain word
+DECISION_HOLD: samp-decision-route was closed outside fm-decision-hold with no captain decision recorded; attest the captain answer with: fm-decision-hold.sh repair samp route --decision-file <path>
+DECISION_HOLD: samp-decision-shape was closed outside fm-decision-hold with no captain decision recorded; attest the captain answer with: fm-decision-hold.sh repair samp shape --decision-file <path>
+
+$ bin/fm-decision-hold.sh hold samp route ...   # hold and verify agree
+fm-decision-hold: captain decision samp-decision-route was closed outside fm-decision-hold with no captain decision recorded; attest the captain's answer with: fm-decision-hold.sh repair samp route --decision-file <path>
+[exit 1]
+
+$ bin/fm-decision-hold.sh repair samp route --decision-file a.txt
+repaired: samp-decision-route
+$ bin/fm-decision-hold.sh repair samp shape --decision-file b.txt
+repaired: samp-decision-shape
+$ bin/fm-decision-hold.sh hold samp keep ... && ... answer samp keep --decision-file c.txt
+answered: samp-decision-keep
+
+$ bin/fm-bootstrap.sh | grep DECISION_HOLD
+(no output)
+$ bin/fm-decision-hold.sh verify samp
+verified: samp unresolved-decision inventory
+```
+
+The same cycle for the suggestion scope, on the nearest legitimate lookalike: the captain-gated thread `AGENTS.md` section 10 prescribes, whose id merely spells the decision separator.
+Before this change `hold` answered the first command with `attest the captain's answer with: fm-decision-hold.sh repair capt ui-q2 --decision-file <path>`, and running that printed command returned `repaired: capt-decision-ui-q2` and replaced the thread's body with a resolution block no captain ever decided.
+
+```text
+$ tasks-axi add capt-decision-ui-q2 ... --kind captain --body "Some unrelated notes."
+$ tasks-axi hold capt-decision-ui-q2 --reason "captain UI choice pending" --kind captain
+$ tasks-axi done capt-decision-ui-q2
+
+$ bin/fm-decision-hold.sh hold capt ui-q2 --title ... --reason ...
+fm-decision-hold: backlog item capt-decision-ui-q2 is an ordinary captain-gated backlog item rather than a captain decision hold this script created, so no captain decision can be recorded on it; raise the decision again under a new decision key
+[exit 1]
+$ bin/fm-decision-hold.sh answer capt ui-q2 --decision-file d.txt
+fm-decision-hold: backlog item capt-decision-ui-q2 is an ordinary captain-gated backlog item rather than a captain decision hold this script created, so no captain decision can be recorded on it; raise the decision again under a new decision key
+[exit 1]
+$ bin/fm-decision-hold.sh decline capt ui-q2 --decision-file d.txt
+fm-decision-hold: backlog item capt-decision-ui-q2 is an ordinary captain-gated backlog item rather than a captain decision hold this script created, so no captain decision can be recorded on it; raise the decision again under a new decision key
+[exit 1]
+$ bin/fm-decision-hold.sh audit
+(no output)
+
+$ tasks-axi show capt-decision-ui-q2 --full | grep -E "body|Resolution"
+  body: Some unrelated notes.
+```
+
 The final verification commands and their exact summarized outputs follow.
 
 ```text
@@ -151,6 +226,7 @@ ok - report-only unresolved decision is reproduced and completion refuses before
 ok - non-forced scout teardown always requires durable inventory verification
 ok - a declined decision closes with a recorded answer and no routed work
 ok - a decision closed outside the script is repairable and then clears teardown
+ok - no refusal suggests repair for an ordinary captain-gated thread, and every one still does for a real decision
 ok - captain decisions closed outside their owner are named at session start and clear only when genuinely closed
 ok - audit, hold, and repair give one verdict about an origin id that spells the decision separator
 ok - the session-start audit costs one backlog read whatever the number of healthy decisions

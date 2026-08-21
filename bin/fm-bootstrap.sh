@@ -1197,7 +1197,6 @@ EOF
 }
 
 detect_local_config() {
-  local __fm_timing_stamp
   # Worktree-tangle check: the firstmate primary checkout (FM_ROOT) must sit on its
   # default branch, not a feature branch (see fm-tangle-lib.sh). Scoped to the
   # primary only; detached-HEAD worktrees and secondmate homes never trip it.
@@ -1238,13 +1237,18 @@ detect_local_config() {
     echo "MISSING_MANUAL: cursor-agent (instructions: $(manual_install_url cursor-agent))"
   fi
   crew_dispatch_validate
-  # The decision-hold sweep reads the backlog, so it is the one local detection
-  # here whose cost tracks how much a home carries rather than being fixed. It is
-  # bracketed like the deferred network owners so that cost stays answerable from
-  # the durable record instead of from someone happening to measure it.
-  __fm_timing_stamp=$(fm_timing_now_ms)
+  # The decision-hold sweep below reads the backlog, and it is NOT timed, because
+  # from here it cannot be. fm-timing-lib.sh records only while FM_TIMING_LOG
+  # names a file, and the deferred network stage is the only thing that ever
+  # allocates one - which it does while invoking this script with
+  # FM_BOOTSTRAP_NETWORK=only, the one phase that skips this entire function. A
+  # bracket here would never fire on any run a home makes, and an instrument that
+  # cannot fire is worse than none: the next reader takes it for coverage and
+  # stops looking. What bounds this sweep instead is construction, not
+  # measurement - fm-decision-hold.sh's audit answers a healthy home from one
+  # backlog read whatever the number of decisions, and its own regression pins
+  # that count.
   detect_decision_holds
-  fm_timing_record phase decision-holds "$__fm_timing_stamp"
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] \
     && ! fm_backlog_backend_manual "$CONFIG" && fm_tasks_axi_compatible; then
     echo "BOOTSTRAP_INFO: tasks-axi available"

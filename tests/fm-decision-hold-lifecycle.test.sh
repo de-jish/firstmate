@@ -724,6 +724,91 @@ test_out_of_band_close_is_repairable_before_teardown() {
   pass "a decision closed outside the script is repairable and then clears teardown"
 }
 
+# A refusal that names a command is advice, and advice is followed. `repair`
+# accepts an identity that carries tasks-axi's hold_kind, which AGENTS.md section
+# 10 puts on ANY captain-gated thread, so any command that prints a `repair`
+# invocation can hand the agent a command that records a captain decision on work
+# no captain ever decided. Every printing surface must therefore ask the same
+# scope question the audit asks. This drives the ordinary captain-gated thread
+# through all three of them, proves none of them names a mutating command for it,
+# proves its body survives untouched, and proves a genuine decision closed out of
+# band still gets its remediation from each of the same three.
+test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
+  local home lookalike id show
+  home=$(make_home repair-suggestion-scope)
+  lookalike=capt-decision-ui-q2
+  printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
+  tasks_in "$home" add "$lookalike" "Captain thread about the sample UI" \
+    --kind captain --repo sample --body 'Some unrelated notes.' >/dev/null \
+    || fail "could not create the lookalike thread"
+  tasks_in "$home" hold "$lookalike" --reason "captain UI choice pending" --kind captain >/dev/null \
+    || fail "could not gate the lookalike thread on the captain"
+  tasks_in "$home" "done" "$lookalike" >/dev/null || fail "could not close the lookalike thread"
+  write_origin_meta "$home" capt
+
+  if run_decisions "$home" hold capt ui-q2 --title "Captain thread about the sample UI" \
+    --reason "captain UI choice pending" --repo sample > "$home/hold.out" 2> "$home/hold.err"; then
+    fail "hold accepted an ordinary captain-gated thread as a captain decision identity"
+  fi
+  assert_no_grep "repair" "$home/hold.err" \
+    "hold handed the agent a command that would record a captain decision on an unrelated thread"
+  assert_grep "ordinary captain-gated backlog item" "$home/hold.err" \
+    "hold refused without saying what the identity actually is"
+  if run_decisions "$home" answer capt ui-q2 --decision-file "$home/decision.txt" \
+    > "$home/answer.out" 2> "$home/answer.err"; then
+    fail "answer accepted an ordinary captain-gated thread as a captain decision identity"
+  fi
+  assert_no_grep "repair" "$home/answer.err" \
+    "answer handed the agent a command that would record a captain decision on an unrelated thread"
+  if run_decisions "$home" decline capt ui-q2 --decision-file "$home/decision.txt" \
+    > "$home/decline.out" 2> "$home/decline.err"; then
+    fail "decline accepted an ordinary captain-gated thread as a captain decision identity"
+  fi
+  assert_no_grep "repair" "$home/decline.err" \
+    "decline handed the agent a command that would record a captain decision on an unrelated thread"
+
+  show=$(tasks_in "$home" show "$lookalike" --full)
+  assert_contains "$show" "Some unrelated notes." "a refusal rewrote the thread it refused"
+  assert_not_contains "$show" "Resolution recorded by fm-decision-hold." \
+    "a captain decision was manufactured on a thread no captain decided"
+
+  # The same three surfaces still name the remediation for a decision this script
+  # really did create, so scoping the suggestion narrowed nothing that matters.
+  id=sample-scope-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample scope" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the genuine origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample scope review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
+  run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "could not register the genuine hold"
+  tasks_in "$home" "done" "$id-decision-route" >/dev/null || fail "could not reproduce the direct close"
+
+  if run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample > "$home/rehold.out" 2> "$home/rehold.err"; then
+    fail "hold accepted a genuine decision closed with no captain answer"
+  fi
+  assert_grep "repair $id route --decision-file" "$home/rehold.err" \
+    "hold stopped naming the remediation for a decision this script created"
+  if run_decisions "$home" answer "$id" route --decision-file "$home/decision.txt" \
+    > "$home/genuine-answer.out" 2> "$home/genuine-answer.err"; then
+    fail "answer closed a decision that was already closed outside the script"
+  fi
+  assert_grep "repair $id route --decision-file" "$home/genuine-answer.err" \
+    "answer stopped naming the remediation for a decision this script created"
+  if run_decisions "$home" decline "$id" route --decision-file "$home/decision.txt" \
+    > "$home/genuine-decline.out" 2> "$home/genuine-decline.err"; then
+    fail "decline closed a decision that was already closed outside the script"
+  fi
+  assert_grep "repair $id route --decision-file" "$home/genuine-decline.err" \
+    "decline stopped naming the remediation for a decision this script created"
+  run_decisions "$home" repair "$id" route --decision-file "$home/decision.txt" >/dev/null \
+    || fail "the remediation all three printed did not attest the decision they named"
+  pass "no refusal suggests repair for an ordinary captain-gated thread, and every one still does for a real decision"
+}
+
 # Session-start bootstrap, scoped to this fixture home and kept local: the
 # DECISION_HOLD lines are the surface a real session actually reads.
 run_home_bootstrap() {  # <home>
@@ -1564,6 +1649,7 @@ test_uninventoried_report_decision_refuses_completion
 test_scout_teardown_always_requires_inventory_verification
 test_declined_decision_closes_without_routed_work
 test_out_of_band_close_is_repairable_before_teardown
+test_no_surface_suggests_repair_for_an_ordinary_captain_thread
 test_audit_reports_decisions_closed_outside_their_owner
 test_audit_hold_and_repair_agree_on_a_nested_decision_origin
 test_audit_cost_does_not_grow_with_the_decisions_it_protects
