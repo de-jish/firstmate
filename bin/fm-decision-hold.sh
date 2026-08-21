@@ -53,16 +53,20 @@
 # always exits 0, and prints nothing at all when tasks-axi cannot be read, because
 # bin/fm-bootstrap.sh reports an unusable tasks-axi on its own line and prefixes
 # each of these findings as a session-start DECISION_HOLD line.
-# It scans two sources because either alone has a blind spot: the backlog listing
-# misses an identity that retention has already archived out of data/backlog.md,
-# and this home's recorded `decision_keys=` inventories miss an origin whose
-# metadata teardown has already removed. An origin that is both torn down and
-# archived is outside both, which is why the strongest tier here is detection at
-# session start rather than a report written after the fact.
-# Both sources also carry the identity's own (origin, decision key) pair, from
-# the inventory that recorded it or from the creation body `hold` wrote, and
-# those two are the whole of the audit's scope. Nothing here re-splits the joined
-# id, and nothing enters the report on tasks-axi's `hold_kind` alone, which any
+# It judges exactly what the backlog still holds, and it says NOTHING about an
+# identity retention has already archived out of data/backlog.md. That identity
+# is not unresolved; it is unreadable, because the archive is not addressable
+# through the owner tool, and a correctly answered decision archived by ordinary
+# retention would otherwise be reported as a defect at every session start
+# forever. Running at every session start is what puts this detection inside the
+# window before retention closes it, and `verify` still refuses an absent
+# identity at that origin's own teardown, where an agent is present to act.
+# This home's recorded `decision_keys=` inventories do not extend the audit past
+# the backlog. They say which of the identities the backlog DOES hold this home
+# owns as reviewed decisions, and they carry that identity's own (origin,
+# decision key) pair. That pair, or the one the creation body `hold` wrote, is
+# the whole of the audit's scope. Nothing here re-splits the joined id, and
+# nothing enters the report on tasks-axi's `hold_kind` alone, which any
 # captain-gated thread carries: this report's remediation rewrites a task body,
 # so naming the wrong subject would manufacture a false record.
 # It runs at every session start, so its price may not rise with the number of
@@ -707,16 +711,21 @@ EOF
 # leaves every candidate to be confirmed against its own record.
 audit_listing() {
   local listing
-  if listing=$(tasks_axi list --kind captain --fields held,hold_kind,body 2>/dev/null); then
+  if listing=$(tasks_axi list --fields held,hold_kind,body 2>/dev/null); then
     printf '%s\n' "$listing"
     return 0
   fi
-  tasks_axi list --kind captain 2>/dev/null || true
+  tasks_axi list 2>/dev/null || true
 }
 
-# Captain-kind backlog identities that carry the decision-hold separator. The
-# listing is only a cheap prefilter whose first field is always an unquoted id;
-# every candidate is confirmed against its own record before it is reported.
+# Backlog identities that carry the decision-hold separator, whatever their kind,
+# because an identity this home recorded as a decision that is no longer kind
+# captain is one of the defects worth naming. This listing is also the audit's
+# whole candidate set: an identity the backlog no longer holds is one the audit
+# says nothing about, so retention takes an archived decision out of the scan
+# instead of turning it into a permanent session-start line.
+# The listing is only a cheap prefilter whose first field is always an unquoted
+# id; every candidate is confirmed against its own record before it is reported.
 audit_backlog_identities() {  # <listing>
   local rows=$1 row candidate
   while IFS= read -r row; do
@@ -812,10 +821,11 @@ audit_healthy_identities() {  # <listing>
 # the identity because joining it into an id is not reversible: an origin id may
 # spell the decision separator itself, and re-splitting would then name a
 # different origin and a different decision than the one this home recorded.
-# These outlive the backlog listing: the metadata still names the hold after
-# retention archives it out of data/backlog.md, and an archived identity is
-# exactly what verify refuses at that origin's teardown, so naming it early is
-# the same verdict earlier.
+# This inventory does not extend the scan past the backlog. It says which of the
+# identities the backlog still holds this home owns as reviewed decisions, which
+# is what admits one whose creation body a later write replaced. An identity the
+# metadata still names after retention archived it is outside the audit
+# entirely - see the header - and `verify` is the gate that refuses it.
 audit_inventory_identities() {
   local meta origin keys key
   for meta in "$STATE"/*.meta; do
@@ -872,11 +882,9 @@ EOF
 decision_defect() {  # <hold-id> <recorded> <origin-id> <decision-key>
   local id=$1 recorded=$2 origin=$3 key=$4 show state held kind hold_kind body pair
   if ! show=$(task_show "$id"); then
-    # Only the recorded inventory outlives the record itself; a listed candidate
-    # that vanished mid-scan carries no evidence left to place it in scope.
-    [ "$recorded" = 1 ] || return 0
-    printf '%s is recorded in %s reviewed decision inventory but is absent from %s/data/backlog.md, which is the same verdict verify gives at teardown; recover the record from the backlog archive or raise the decision again under a new decision key\n' \
-      "$id" "$origin" "$FM_HOME"
+    # An identity the backlog no longer holds is one this detector says nothing
+    # about, whether it left between the listing and this read or retention
+    # archived it. `verify` refuses it at that origin's teardown.
     return 0
   fi
   state=$(show_field "$show" state)
@@ -890,19 +898,19 @@ decision_defect() {  # <hold-id> <recorded> <origin-id> <decision-key>
   if [ "$state" = "done" ] && [ "$kind" = captain ] && body_has_resolution_record "$body"; then
     return 0
   fi
-  # Scope, through the one rule decision_hold_in_scope owns and every surface
-  # that can name a remediation shares. The pair it is asked about is the pair
-  # this home recorded, or the pair the record's own creation body names, and
-  # never a re-split of the joined id. `repair` still reads the wider provenance,
-  # because there the identity is the caller's own argument rather than something
-  # this scan decided to name.
+  # Scope: the same two-part rule decision_hold_in_scope states for the surfaces
+  # that answer about a caller's own pair, evaluated here for a pair the scan has
+  # to find. <recorded> already settled the inventory half, so what is left is
+  # the creation body half, and it must name THIS id rather than any pair. The
+  # pair is never a re-split of the joined id. `repair` still reads the wider
+  # provenance, because there the identity is the caller's own argument rather
+  # than something this scan decided to name.
   if [ "$recorded" != 1 ]; then
     pair=$(creation_body_identity "$body") || return 0
     origin=${pair%%$'\t'*}
     key=${pair#*$'\t'}
     [ "$(hold_id "$origin" "$key")" = "$id" ] || return 0
   fi
-  decision_hold_in_scope "$show" "$origin" "$key" || return 0
   if [ "$kind" != captain ]; then
     printf '%s carries a reviewed captain decision identity but is kind %s, so it cannot hold a captain decision; give that work its own identity\n' \
       "$id" "${kind:--}"
@@ -932,12 +940,7 @@ command_audit() {
   listing=$(audit_listing)
   healthy=$(audit_healthy_identities "$listing")
   inventory=$(audit_inventory_identities | sed '/^$/d' | LC_ALL=C sort -u)
-  identities=$(
-    {
-      audit_backlog_identities "$listing"
-      printf '%s\n' "$inventory" | cut -f1
-    } | sed '/^$/d' | LC_ALL=C sort -u
-  )
+  identities=$(audit_backlog_identities "$listing" | sed '/^$/d' | LC_ALL=C sort -u)
   while IFS= read -r id; do
     [ -n "$id" ] || continue
     if list_has_line "$healthy" "$id"; then

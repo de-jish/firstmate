@@ -30,15 +30,18 @@ The `audit` subcommand is that gate's fleet-wide read-only counterpart, and `bin
 It exists because `verify` only ever runs at one origin's own teardown: a home that never tore that origin down held a broken decision ledger and had no way to learn it.
 The audit reports every captain decision identity that is neither actively held nor durably resolved, reading the same fields `verify` reads, so a session-start finding and a teardown refusal can never disagree about one identity.
 It is a detector and not a gate: it prints one remediation per defect, always exits 0, and stays silent when tasks-axi cannot be read at all, because bootstrap already reports that on its own line.
-It reads two sources because either alone has a blind spot.
-The backlog listing misses an identity retention has already archived out of `data/backlog.md`, and the home's recorded `decision_keys=` inventories miss an origin whose metadata teardown has already removed.
-An identity that is both archived and torn down is outside both, which is why the detection runs at every session start rather than being written up after the fact.
+It judges exactly what `data/backlog.md` still holds, and it says nothing at all about an identity retention has already archived out of it.
+That identity is not unresolved, it is unreadable: the archive is not addressable through the owner tool, so a decision the captain answered correctly and retention then archived would otherwise be reported as a defect at every session start forever, and the remediation would tell the agent to re-raise a decision that is already answered.
+Running at every session start is what puts this detection inside the window before retention closes it, and `verify` still refuses an absent identity at that origin's own teardown, which is where an agent is present to act on it.
+That is the residual gap, stated rather than papered over: an identity archived out of the backlog is outside the audit.
+The home's recorded `decision_keys=` inventories do not extend the scan past the backlog either; they say which of the identities the backlog still holds this home owns as reviewed decisions, which is what admits one whose creation body a later write replaced.
 An identity is in scope when the home recorded it in a `decision_keys=` inventory or its own record still carries the creation body `hold` writes, and never on `hold_kind` alone, which `AGENTS.md` section 10 puts on every captain-gated thread.
 The report's remediation rewrites the body of whatever it names, so a wrong subject would not merely cry wolf: it would manufacture a resolution record on an ordinary captain thread whose id merely spells the decision separator.
 Both in-scope sources also carry the identity's own origin id and decision key, because `<origin-id>-decision-<decision-key>` cannot be split back apart when the origin id spells the separator too, and a re-split id would make `audit`, `hold`, and `repair` disagree about one identity.
 
 Because it runs at every session start, the audit's price may not rise with the number of decisions a home carries; a control that gets slower the more it protects is a control someone turns off.
-One `tasks-axi list --kind captain --fields held,hold_kind,body` call carries the fields a healthy verdict reads, and every identity that listing proves properly held or durably resolved leaves the scan without a further call, so a healthy home costs one backlog read rather than one per decision.
+One `tasks-axi list --fields held,hold_kind,body` call carries the fields a healthy verdict reads, and every identity that listing proves properly held or durably resolved leaves the scan without a further call, so a healthy home costs one backlog read rather than one per decision.
+That listing is also the whole candidate set, which is what keeps an archived identity out of the scan for free rather than at the price of a lookup that could only ever come back empty.
 The listing decides only what to SKIP.
 Nothing is reported on listing evidence: whatever it does not prove healthy is re-read from its own record before a line is printed, so a quoted title, an escaped body, or a body the listing truncated can cost a confirmation call and can never manufacture a finding.
 That bound is a property of the construction rather than something measured at run time, and the regression pins the count.
@@ -122,6 +125,7 @@ Answer-time closure verification date: 2026-08-16.
 Cross-origin answer-time closure verification date: 2026-08-19.
 Session-start audit and out-of-band-close provenance verification date: 2026-08-20.
 Remediation-suggestion scope verification date: 2026-08-20.
+Archived-resolution silence verification date: 2026-08-20.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -152,6 +156,7 @@ The cost case records every `tasks-axi` invocation the session-start audit makes
 The message case releases a hold and re-holds it for something other than the captain, and proves the printed line never denies the state printed beside it, names the `hold_kind` that makes it a defect, and clears only when the remediation it prints is actually run.
 
 A fourth drives an ordinary captain-gated thread through `hold`, `answer`, and `decline`, proves none of them names a `repair` invocation for it and that its body survives every refusal untouched, and proves all three still name the remediation for a decision this script really created.
+A fifth answers three decisions through their owner, drives real retention by closing eleven unrelated tasks until `.tasks.toml`'s `done_keep` moves them into the archive, and proves the audit and the session start both stay silent about them while `verify` still refuses the absent identity at that origin's teardown.
 
 ### Reproduce, catch, revert, as of 2026-08-20
 
@@ -229,6 +234,7 @@ ok - a decision closed outside the script is repairable and then clears teardown
 ok - no refusal suggests repair for an ordinary captain-gated thread, and every one still does for a real decision
 ok - captain decisions closed outside their owner are named at session start and clear only when genuinely closed
 ok - audit, hold, and repair give one verdict about an origin id that spells the decision separator
+ok - decisions answered through their owner stay silent once retention archives them, while verify still refuses at teardown
 ok - the session-start audit costs one backlog read whatever the number of healthy decisions
 ok - an audit line never denies the state it prints beside it
 ok - an unanswered decision still blocks completion and resists both unrouted close paths

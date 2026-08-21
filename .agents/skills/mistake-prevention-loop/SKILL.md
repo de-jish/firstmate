@@ -86,6 +86,7 @@ Each of these is a way of appearing to close the loop without closing it.
 - Fixing the instance and deferring the prevention.
 - Treating the captain noticing as the correction, rather than as evidence the loop was missing.
 - Shipping a guard whose printed remediation is destructive when its scope is wrong.
+- Fixing the site a finding names when the finding is really about a class, instead of sweeping for the class first.
 
 The captain-noticing one is the most expensive, because it hides the real defect.
 The captain noticing means detection was absent, so the prevention owed is detection, not an apology and a fixed instance.
@@ -97,6 +98,12 @@ The session-start captain-decision audit in `bin/fm-decision-hold.sh` is the wor
 Two checks follow from it.
 Before shipping a guard, ask what its printed remediation does when the scope is wrong, and scope on signals the guard's own owner writes rather than on ones any neighboring workflow also writes.
 Then prove the scope on the nearest legitimate lookalike, not on the failing case alone: a guard proven only against the mistake it was written for has been shown to fire, never shown to hold its edge.
+
+The sweep one costs a review round per site left standing.
+Some defects are a class rather than a place: a remediation gated on the wrong test, a control that cannot fire, a claim pinned to something that moves.
+When the defect is one of those, the first fix is the sweep, not the patch, and the anti-pattern is not "we missed a site" but "we fixed a site" - fixing the instance in front of you and moving on leaves the class intact everywhere else, and every remaining site costs another round to find.
+The destructive-remediation defect above is the worked example: it was fixed at the audit in one round, found again at `command_hold` in a later one, and only a deliberate sweep then turned up a third site in `close_unrouted_hold` that predated the branch and whose blast radius the branch had quietly enlarged.
+The check this implies: when a finding names a test, a gate, or a condition used in one place, ask what else uses it before fixing it, and report the sweep result even when it is empty, because "I looked and there is one site" and "I fixed the site I was shown" read identically in a diff and mean opposite things.
 
 A new guard's first version also gets checked against the contracts the repository already enforces, because a guard is new code in an old system and inherits every rule that system already has.
 The same audit's first version wrote to the home's state directory on a detect-only session start, which the repository's own harness test refuses, and it was the second guard that day to break that contract.

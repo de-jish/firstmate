@@ -841,6 +841,63 @@ run_session_audit() {  # <home>
     FM_TASKS_AXI_COMPATIBLE=1 "$ROOT/bin/fm-decision-hold.sh" audit
 }
 
+# Backlog retention is the third thing that went wrong in the original incident,
+# and it is ordinary: `.tasks.toml` keeps ten done tasks in data/backlog.md and
+# moves the rest to the archive, so a closed captain hold leaves the backlog on
+# its own schedule. A home whose decisions were every one of them answered
+# through their owner must stay silent after that happens - a detector that tells
+# every session four answered decisions are unresolved, and offers to raise them
+# again under new keys, is a detector the next agent learns to scroll past.
+test_correctly_resolved_decisions_stay_silent_after_retention_archives_them() {
+  local home id key out
+  home=$(make_home audit-archived-resolution)
+  id=sample-archive-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample archive" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the archive origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample archive review\n\nThree captain choices remain.\n' > "$home/data/$id/report.md"
+  printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
+  for key in route shape keep; do
+    run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+      --reason "captain $key choice pending" --repo sample >/dev/null \
+      || fail "could not register the $key hold"
+  done
+  run_decisions "$home" complete "$id" route shape keep >/dev/null \
+    || fail "completion failed while every decision was properly held"
+  for key in route shape keep; do
+    run_decisions "$home" answer "$id" "$key" --decision-file "$home/decision.txt" >/dev/null \
+      || fail "the captain's answer to $key could not be recorded through its owner"
+  done
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  [ -z "$out" ] || fail "audit reported a defect while every decision was answered through its owner: $out"
+
+  # Real retention, driven the way a working home drives it.
+  for key in $(seq 1 11); do
+    tasks_in "$home" add "filler-$key" "Filler $key" --kind ship --repo sample >/dev/null \
+      || fail "could not create filler task $key"
+    tasks_in "$home" "done" "filler-$key" >/dev/null || fail "could not close filler task $key"
+  done
+  assert_no_grep "$id-decision-route" "$home/data/backlog.md" \
+    "retention did not archive the answered decision, so this case reproduces nothing"
+  assert_grep "$id-decision-route" "$home/data/done-archive.md" \
+    "the answered decision left the backlog without reaching the archive"
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero after retention"
+  [ -z "$out" ] || fail "audit reported answered decisions as defects once retention archived them: $out"
+  out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
+  [ -z "$out" ] || fail "session start reported answered decisions as defects once retention archived them: $out"
+
+  # The origin's own gate is unchanged: at teardown, where an agent is present to
+  # act, an identity the backlog no longer holds is still refused.
+  if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verify stopped refusing an identity the backlog no longer holds"
+  fi
+  assert_grep "absent from" "$home/verify.err" "verify refused for some other reason than absence"
+  pass "decisions answered through their owner stay silent once retention archives them, while verify still refuses at teardown"
+}
+
 # The audit runs at every session start, so its price must not rise with the
 # number of decisions a home carries: a control that gets slower the more it
 # protects is a control someone turns off, and then it protects nothing. A home
@@ -1652,6 +1709,7 @@ test_out_of_band_close_is_repairable_before_teardown
 test_no_surface_suggests_repair_for_an_ordinary_captain_thread
 test_audit_reports_decisions_closed_outside_their_owner
 test_audit_hold_and_repair_agree_on_a_nested_decision_origin
+test_correctly_resolved_decisions_stay_silent_after_retention_archives_them
 test_audit_cost_does_not_grow_with_the_decisions_it_protects
 test_audit_line_never_contradicts_the_state_it_prints
 test_unanswered_decision_still_blocks_completion_and_teardown
