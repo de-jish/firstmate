@@ -575,11 +575,14 @@ kind_drift_verdict() {  # <hold-id> <kind> <body>
 # unattestable: the finding keeps printing and the origin's completion gate keeps
 # refusing. Reopening the identity restores the row `verify` is looking for,
 # re-holding it with --kind captain restores the signal every close path checks,
-# and `answer` then writes the durable resolution block through this ledger, which
-# is what `repair` could no longer attest for it.
+# and the closing command then writes the durable resolution block through this
+# ledger, which is what `repair` could no longer attest for it. The last step names
+# both closing commands because the identity is held again by the time the reader
+# reaches it, and `answer` refuses a hold that still blocks routed work: naming
+# only `answer` prints a sequence a routed decision cannot finish.
 lost_provenance_verdict() {  # <hold-id> <origin-id> <decision-key>
-  printf '%s was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and answer it with tasks-axi reopen %s, then tasks-axi hold %s --reason "<reason>" --kind captain, then fm-decision-hold.sh answer %s %s --decision-file <path>; raising the decision again under a new key strands %s in %s'"'"'s reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate' \
-    "$1" "$1" "$1" "$2" "$3" "$1" "$2"
+  printf '%s was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and record the captain answer on it with tasks-axi reopen %s, then tasks-axi hold %s --reason "<reason>" --kind captain, then fm-decision-hold.sh resolve %s %s --decision-file <path> --routed-to <task-id> while that hold still blocks routed work, or fm-decision-hold.sh answer %s %s --decision-file <path> once nothing is blocked by it; raising the decision again under a new key strands %s in %s'"'"'s reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate' \
+    "$1" "$1" "$1" "$2" "$3" "$2" "$3" "$1" "$2"
 }
 
 # The whole refusal for an identity that is closed with no resolution record,

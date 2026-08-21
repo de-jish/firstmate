@@ -142,6 +142,7 @@ Repair-suggestion gate completeness verification date: 2026-08-20.
 Kind-drift remediation verification date: 2026-08-20.
 Out-of-scope refusal wording and hold routing verification date: 2026-08-20.
 Lost-provenance remediation verification date: 2026-08-21.
+Routed-close remediation branch and restored verification record date: 2026-08-21.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -176,9 +177,10 @@ A fifth answers three decisions through their owner, drives real retention by cl
 The fourth also covers both ways an identity drifts off kind `captain` - closed out of band and then moved, and answered through its owner and then moved - and proves `hold`, `answer`, and `decline` name no `repair` command for either, give the audit's own sentence, and never claim a recorded decision is unrecorded.
 It closes with the identity the scope rule declines but `repair` accepts, and proves the refusal states only what the rule tested while `repair` still attests it, so no surface asserts something a reader can disprove in one command.
 A sixth moves a reviewed decision off kind `captain` with `tasks-axi update`, and proves the audit and the session start both name it and that the finding clears when the kind is restored.
-A seventh follows the lost-provenance remediation instead of paraphrasing it: it parses the three commands out of the audit's own line, substitutes the reason and decision-file placeholders an operator supplies, runs them in the printed order, and proves that the audit then falls silent and the origin passes `verify` again.
+A seventh follows the lost-provenance remediation instead of paraphrasing it: it parses the commands out of the audit's own line, substitutes the placeholders an operator supplies, runs them in the printed order, and proves that the audit then falls silent and the origin passes `verify` again.
+It walks both branches of the printed line, because the last step names `resolve` for a hold that still blocks routed work and `answer` for one that does not, and a remedy is only followable if every branch it names can be completed.
 It executes the printed text rather than the code path behind it, so a remediation that stops being followable fails the test even when every predicate still behaves.
-That case is the one regression that fails if a `--kind captain` filter is ever restored to the audit's listing, which is the only way that detection could be deleted while every other regression stayed green.
+The sixth, `test_audit_names_a_reviewed_decision_moved_off_kind_captain`, is the one regression that fails if a `--kind captain` filter is ever restored to the audit's listing, which is the only way that detection could be deleted while every other regression stayed green.
 
 ### Reproduce, catch, revert, as of 2026-08-20
 
@@ -345,7 +347,15 @@ fm-decision-hold: captain decision samp-decision-route is absent from <home>/dat
 
 The verification commands and their exact summarized outputs follow.
 This block is re-captured as the last edit of any change that touches this mechanism, after every other edit in that change is complete, because evidence captured mid-change is invalidated by the rest of the change - which has happened on this branch to a commit message, a transcript, a code comment, and this block itself.
-A reader re-verifies it without knowing which commit it was written against by running `bash tests/fm-decision-hold-lifecycle.test.sh` from the repository root and comparing the `ok -` lines below.
+A re-capture EXTENDS this record and never replaces it.
+
+That rule is written here because it was broken on 2026-08-21 and this record was reduced without notice.
+Commit `6350ed1` re-captured the decision-hold suite by rewriting the fenced block from its first command to the fence that closed it, which silently deleted every other command sharing that fence: the recorded runs of `tests/fm-fleet-snapshot-view.test.sh`, `tests/fm-bearings-snapshot.test.sh`, `tests/fm-send-resolve-key.test.sh`, `tests/fm-brief.test.sh` and `tests/fm-teardown.test.sh`, together with the `bin/fm-lint.sh`, `bin/fm-doc-audience-check.sh` and `git diff --check` evidence, which had no other home in the repository.
+All of it is restored below by re-running each command against the code as it stands, never by pasting the deleted text, and one recorded line is now recorded as not reached rather than as passing.
+The point of this record is that a reader can trust its extent, so a silent reduction is worth more here as a stated correction than as a quiet repair.
+
+A reader re-verifies it without knowing which commit it was written against by running each command below from the repository root and comparing the output.
+The per-suite counts say how many cases each run reported, so a truncated capture is visible as a smaller number rather than as a shorter list.
 
 ```text
 $ bash tests/fm-decision-hold-lifecycle.test.sh
@@ -355,7 +365,7 @@ ok - a declined decision closes with a recorded answer and no routed work
 ok - a decision closed outside the script is repairable and then clears teardown
 ok - no refusal suggests repair for an ordinary captain-gated thread or for one repair would refuse, and every one still does for a real decision
 ok - captain decisions closed outside their owner are named at session start and clear only when genuinely closed
-ok - following the printed lost-provenance remediation clears the finding and unblocks the origin
+ok - following the printed lost-provenance remediation clears the finding on both its branches
 ok - a reviewed decision moved off kind captain is named at session start and clears when its kind is restored
 ok - audit, hold, and repair give one verdict about an origin id that spells the decision separator
 ok - decisions answered through their owner stay silent once retention archives them, while verify still refuses at teardown
@@ -374,4 +384,49 @@ ok - a channel source with no decision binding closes nothing
 ok - an any-origin bound source closes full-identity holds across origins
 ok - the answer path keeps every guard the unrouted close path already had
 ok - the chat channel feeds the same keyed-answer intake a captured review does
+
+$ bash tests/fm-fleet-snapshot-view.test.sh
+ok - backlog normalization preserves strict roles and resolves every blocker compatibly
+ok - durable captain-held transfer closes the duplicate live status decision
+ok - snapshot parses tasks-axi rows and respects operational overrides
+(15 cases reported, all ok; the three above are the ones this mechanism owns)
+
+$ bash tests/fm-bearings-snapshot.test.sh
+ok - a completed scout with decision-like report prose is a pointer, not pending
+ok - an authoritative captain hold surfaces end-to-end
+ok - action-free items (working/done/queued/landed) do not leak into Captain's Call
+ok - main and secondmate captain actionability use the same blocker readiness
+(41 cases reported, all ok; the four above are the ones this mechanism owns)
+
+$ bash tests/fm-send-resolve-key.test.sh
+ok - fm-send --resolve-key: the answer send itself closes the open decision
+ok - fm-send --resolve-key: a key that is not open refuses loudly before anything is sent
+(13 cases reported, all ok; the status-log ledger's behavior is unchanged)
+
+$ bash tests/fm-brief.test.sh
+ok - fm-brief.sh: investigation and visual-review completions load the shared decision policy
+(20 cases reported, all ok)
+
+$ bash tests/fm-teardown.test.sh
+ok - herdr teardown removes pane-owned escalation dedupe state
+ok - herdr flat teardown refuses before returning the isolated copy under lock contention and the retry completes cleanly
+ok - herdr flat teardown never erases records when pane presence is unparseable
+not ok - herdr-preflight-missing-adapter: teardown continued without its required preflight
+[exit 1]
+(12 cases reported ok before the refusal above)
+
+$ bin/fm-lint.sh
+fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)
+fm-lint-workflows.sh: actionlint 1.7.12 (pinned 1.7.12)
+fm-lint-workflows.sh: 3 workflow files valid
+
+$ bin/fm-doc-audience-check.sh
+fm-doc-audience-check: ok surfaces=70 local_links=255
+
+$ git diff --check
+(no output)
 ```
+
+The `fm-teardown` refusal above is the pre-existing herdr-preflight failure named in this change's delivery notes, and it is not this branch's.
+That suite stops at the first failing case, so the line this record previously quoted from it - `ok - the run abort and the leaked-process reap both complete before the destructive worktree return` - is no longer reached, and it is recorded here as not reached rather than carried forward as passing.
+This branch modifies none of the files that case exercises: `bin/fm-teardown.sh`, `tests/fm-teardown.test.sh` and the herdr libraries are all untouched between the base commit and this head, which `git diff --name-only` shows directly.

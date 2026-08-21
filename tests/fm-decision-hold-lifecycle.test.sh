@@ -977,19 +977,11 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
   pass "no refusal suggests repair for an ordinary captain-gated thread or for one repair would refuse, and every one still does for a real decision"
 }
 
-# A remediation is worth printing only if following it exactly ends the finding.
-# So this one is followed mechanically rather than paraphrased: the commands are
-# parsed out of the audit's own line, given the two substitutions an operator
-# makes, and run in the printed order, which exercises the printed path instead
-# of the code path behind it. Both ends are asserted because clearing the audit
-# line is not the point on its own - the origin has this key in its recorded
-# inventory, so the recovery has only worked when `verify` passes again.
-test_printed_lost_provenance_remediation_clears_the_finding() {
-  local home id hold_id line remediation cmd prog out verbs=""
-  local -a argv
-  home=$(make_home lost-provenance-remediation)
-  id=sample-route-review
-  hold_id="$id-decision-route"
+# Breaks the identity the way the lost-provenance verdict describes: held and
+# completed through this ledger, then rewritten and closed out of band so neither
+# captain-hold signal survives.
+seed_lost_provenance_identity() {  # <home> <origin-id> <decision-key> [blocked-task]
+  local home=$1 id=$2 key=$3 blocked=${4:--} hold_id="$2-decision-$3"
   printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
   mkdir -p "$home/data/$id"
   tasks_in "$home" add "$id" "Investigate the sample scope" --kind scout --repo sample --start >/dev/null \
@@ -997,28 +989,63 @@ test_printed_lost_provenance_remediation_clears_the_finding() {
   write_origin_meta "$home" "$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
   printf '# Sample scope review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
-  run_decisions "$home" hold "$id" route --title "Choose the sample route" \
-    --reason "captain route choice pending" --repo sample >/dev/null \
-    || fail "could not register the route hold"
-  run_decisions "$home" complete "$id" route >/dev/null \
-    || fail "completion failed while the route decision was properly held"
+  run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+    --reason "captain $key choice pending" --repo sample >/dev/null \
+    || fail "could not register the $key hold"
+  if [ "$blocked" != - ]; then
+    tasks_in "$home" add "$blocked" "Follow the sample $key" --kind ship --repo sample >/dev/null \
+      || fail "could not create the routed follow-up work"
+    tasks_in "$home" block "$blocked" --by "$hold_id" >/dev/null \
+      || fail "could not route follow-up work behind the hold"
+  fi
+  run_decisions "$home" complete "$id" "$key" >/dev/null \
+    || fail "completion failed while the $key decision was properly held"
   tasks_in "$home" unhold "$hold_id" >/dev/null || fail "could not clear the captain hold kind"
   tasks_in "$home" update "$hold_id" --body "Notes rewritten out of band." >/dev/null \
     || fail "could not replace the creation body"
-  tasks_in "$home" "done" "$hold_id" >/dev/null || fail "could not close the route decision"
+  tasks_in "$home" "done" "$hold_id" >/dev/null || fail "could not close the $key decision"
+}
 
+# Follows the lost-provenance remediation exactly as the audit prints it, taking
+# the branch this fixture is in, and asserts the finding actually ends: the audit
+# falls silent AND the origin passes `verify`, because clearing the line alone
+# would leave the recorded key stranded in the origin's inventory.
+follow_printed_lost_provenance_remediation() {  # <home> <origin-id> <decision-key> [routed-task]
+  local home=$1 id=$2 key=$3 routed=${4:--} hold_id="$2-decision-$3"
+  local anchor=" record the captain answer on it with " expect_verbs
+  local line remediation cmd prog out verbs=""
+  local -a argv
   line=$(run_decisions "$home" audit | grep -F "$hold_id ") \
     || fail "the audit stopped naming the decision it can no longer attest"
-  assert_contains "$line" " answer it with " \
+  assert_contains "$line" "$anchor" \
     "the audit printed no remediation a reader can follow to silence"
-  remediation=${line#* answer it with }
+  remediation=${line#*"$anchor"}
   remediation=${remediation%%; raising*}
-  printf '%s\n' "$remediation" \
-    | awk '{ gsub(/, then /, "\n"); print }' \
-    | sed -e "s#<reason>#the captain answered this route#" -e "s#<path>#$home/decision.txt#" \
-    > "$home/remediation.sh"
-  [ "$(wc -l < "$home/remediation.sh")" -eq 3 ] \
-    || fail "the printed remediation was not three commands: $remediation"
+  printf '%s\n' "$remediation" | awk '{ gsub(/, then /, "\n"); print }' > "$home/$key-steps"
+  [ "$(wc -l < "$home/$key-steps")" -eq 3 ] \
+    || fail "the printed remediation was not three steps: $remediation"
+  : > "$home/$key-remediation.sh"
+  while IFS= read -r cmd; do
+    case $cmd in
+      *", or "*)
+        assert_contains "$cmd" "fm-decision-hold.sh resolve " \
+          "the printed remediation named no routed-work command for a hold that can still block work"
+        if [ "$routed" = - ]; then
+          cmd=${cmd#*, or }
+          cmd=${cmd%% once nothing*}
+        else
+          cmd=${cmd%%, or *}
+          cmd=${cmd%% while that hold*}
+        fi
+        ;;
+    esac
+    printf '%s\n' "$cmd" >> "$home/$key-remediation.sh"
+  done < "$home/$key-steps"
+  sed -i.bak \
+    -e "s#<reason>#the captain answered this $key#" \
+    -e "s#<path>#$home/decision.txt#" \
+    -e "s#<task-id>#$routed#" \
+    "$home/$key-remediation.sh"
   while IFS= read -r cmd; do
     eval "argv=($cmd)"
     prog=${argv[0]}
@@ -1028,16 +1055,40 @@ test_printed_lost_provenance_remediation_clears_the_finding() {
       fm-decision-hold.sh) run_decisions "$home" "${argv[@]:1}" >/dev/null || fail "printed remediation step failed: $cmd" ;;
       *) fail "the printed remediation named a program this test cannot run: $prog" ;;
     esac
-  done < "$home/remediation.sh"
-  [ "$verbs" = " tasks-axi:reopen tasks-axi:hold fm-decision-hold.sh:answer" ] \
-    || fail "the printed remediation was not reopen, re-hold, answer in that order:$verbs"
+  done < "$home/$key-remediation.sh"
+  if [ "$routed" = - ]; then
+    expect_verbs=" tasks-axi:reopen tasks-axi:hold fm-decision-hold.sh:answer"
+  else
+    expect_verbs=" tasks-axi:reopen tasks-axi:hold fm-decision-hold.sh:resolve"
+  fi
+  [ "$verbs" = "$expect_verbs" ] \
+    || fail "the printed remediation was not reopen, re-hold, close in that order:$verbs"
 
   run_decisions "$home" verify "$id" >/dev/null \
     || fail "the origin still cannot pass its completion gate after its own remediation was followed"
   out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
   [ -z "$out" ] \
     || fail "the audit still reports a defect after its own remediation was followed: $out"
-  pass "following the printed lost-provenance remediation clears the finding and unblocks the origin"
+}
+
+# A remediation is worth printing only if following it exactly ends the finding.
+# So this one is followed mechanically rather than paraphrased: the commands are
+# parsed out of the audit's own line, given the substitutions an operator makes,
+# and run in the printed order, which exercises the printed path instead of the
+# code path behind it. Both branches of the last step are walked, because a hold
+# that still blocks routed work refuses `answer` and only `resolve` can close it,
+# so a line naming only `answer` would be unfollowable for exactly the decisions
+# that had follow-up work - the shape the first version of this test missed.
+test_printed_lost_provenance_remediation_clears_the_finding() {
+  local home routed
+  home=$(make_home lost-provenance-remediation)
+  seed_lost_provenance_identity "$home" sample-route-review route
+  follow_printed_lost_provenance_remediation "$home" sample-route-review route
+
+  routed=$(make_home lost-provenance-remediation-routed)
+  seed_lost_provenance_identity "$routed" sample-shape-review shape follow-sample-shape
+  follow_printed_lost_provenance_remediation "$routed" sample-shape-review shape follow-sample-shape
+  pass "following the printed lost-provenance remediation clears the finding on both its branches"
 }
 
 # Session-start bootstrap, scoped to this fixture home and kept local: the
