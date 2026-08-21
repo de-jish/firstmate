@@ -734,7 +734,7 @@ test_out_of_band_close_is_repairable_before_teardown() {
 # proves its body survives untouched, and proves a genuine decision closed out of
 # band still gets its remediation from each of the same three.
 test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
-  local home lookalike id show
+  local home lookalike id show surface drifted
   home=$(make_home repair-suggestion-scope)
   lookalike=capt-decision-ui-q2
   printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
@@ -852,6 +852,67 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
     "decline named a repair command that repair itself refuses"
   assert_grep "no longer carries captain-hold provenance" "$home/shape-decline.err" \
     "decline gave a different verdict than the audit about one identity"
+
+  # In scope and no longer kind captain: `repair` refuses on kind before it reads
+  # anything else, so a surface that suggests it here names a command its own
+  # owner will not run. This runs in its own home because `complete` verifies
+  # every key the inventory already holds, and the decisions above are
+  # deliberately broken. Both ways an identity reaches this state are covered,
+  # because the second makes the older wording say something false rather than
+  # merely unhelpful - the decision really was answered through its owner.
+  drifted=$(make_home repair-suggestion-kind)
+  printf 'Captain chose the northern sample route.\n' > "$drifted/decision.txt"
+  mkdir -p "$drifted/data/$id"
+  tasks_in "$drifted" add "$id" "Investigate the sample scope" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the kind-drift origin"
+  write_origin_meta "$drifted" "$id"
+  printf 'done: report complete\n' > "$drifted/state/$id.status"
+  printf '# Sample scope review\n\nTwo captain choices remain.\n' > "$drifted/data/$id/report.md"
+
+  run_decisions "$drifted" hold "$id" size --title "Choose the sample size" \
+    --reason "captain size choice pending" --repo sample >/dev/null \
+    || fail "could not register the size hold"
+  run_decisions "$drifted" hold "$id" depth --title "Choose the sample depth" \
+    --reason "captain depth choice pending" --repo sample >/dev/null \
+    || fail "could not register the depth hold"
+  run_decisions "$drifted" complete "$id" size depth >/dev/null \
+    || fail "completion failed while both decisions were properly held"
+  run_decisions "$drifted" answer "$id" depth --decision-file "$drifted/decision.txt" >/dev/null \
+    || fail "the captain's answer to depth could not be recorded through its owner"
+  tasks_in "$drifted" "done" "$id-decision-size" >/dev/null || fail "could not close the size decision"
+  tasks_in "$drifted" update "$id-decision-size" --kind ship >/dev/null \
+    || fail "could not move the closed decision off kind captain"
+  tasks_in "$drifted" update "$id-decision-depth" --kind ship >/dev/null \
+    || fail "could not move the answered decision off kind captain"
+
+  if run_decisions "$drifted" repair "$id" size --decision-file "$drifted/decision.txt" \
+    > "$drifted/size-repair.out" 2> "$drifted/size-repair.err"; then
+    fail "repair attested an identity that is no longer kind captain"
+  fi
+  for surface in answer decline; do
+    if run_decisions "$drifted" "$surface" "$id" size --decision-file "$drifted/decision.txt" \
+      > "$drifted/size-$surface.out" 2> "$drifted/size-$surface.err"; then
+      fail "$surface closed a decision that is no longer kind captain"
+    fi
+    assert_no_grep "repair $id size --decision-file" "$drifted/size-$surface.err" \
+      "$surface named a repair command that repair itself refuses on kind"
+    assert_grep "but is kind ship" "$drifted/size-$surface.err" \
+      "$surface gave a different verdict than the audit about one identity"
+  done
+
+  show=$(tasks_in "$drifted" show "$id-decision-depth" --full)
+  assert_contains "$show" "Resolution recorded by fm-decision-hold." \
+    "the answered decision lost its resolution record, so this case reproduces nothing"
+  for surface in answer decline; do
+    if run_decisions "$drifted" "$surface" "$id" depth --decision-file "$drifted/decision.txt" \
+      > "$drifted/depth-$surface.out" 2> "$drifted/depth-$surface.err"; then
+      fail "$surface closed a decision that is no longer kind captain"
+    fi
+    assert_no_grep "no captain decision recorded" "$drifted/depth-$surface.err" \
+      "$surface said no captain decision was recorded while the record is still there"
+    assert_grep "but is kind ship" "$drifted/depth-$surface.err" \
+      "$surface did not name the kind that makes this a defect"
+  done
   pass "no refusal suggests repair for an ordinary captain-gated thread or for one repair would refuse, and every one still does for a real decision"
 }
 

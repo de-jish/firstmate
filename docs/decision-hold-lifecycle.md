@@ -74,8 +74,9 @@ Because a successful repair replaces that creation body, the already-repaired re
 
 `hold_kind` is enough for `repair` to act on an identity the caller named itself, and it is never enough for another command to name that identity to the caller.
 Acting and suggesting are different questions because a suggestion is followed: a printed `repair` invocation that lands on the wrong subject records a captain decision no captain gave, which is the harm the whole ledger exists to prevent.
-So `hold`, `answer`, and `decline` each ask the same two questions the audit asks before they print a `repair` invocation, both owned in one place: the scope rule says this ledger owns the identity at all, and the provenance test says `repair` would then act on it rather than refuse.
-An identity that fails either one is refused with a shared text that names no mutating command, because a refusal that suggests a command its own owner refuses is the same contradiction about one identity as naming the wrong subject.
+So `hold`, `answer`, and `decline` reach one shared gate before they print a `repair` invocation, and that gate asks every precondition `repair` itself asks, in `repair`'s own order: the scope rule says this ledger owns the identity at all, the kind says the item can hold a captain decision, and the provenance test says `repair` would then act on it rather than refuse.
+Asking a subset is how a gate ends up naming a command its own owner refuses, so no caller carries its own copy of any clause.
+An identity that fails any of them is refused with a shared text that names no mutating command, and the kind refusal is the audit's own sentence verbatim, so one identity gets one verdict whichever surface a reader meets first.
 The refusals themselves are unchanged at every site; only the remediation a lookalike is handed changed.
 
 ## Answer-time closure
@@ -131,6 +132,7 @@ Session-start audit and out-of-band-close provenance verification date: 2026-08-
 Remediation-suggestion scope verification date: 2026-08-20.
 Archived-resolution silence verification date: 2026-08-20.
 Kind-drift detection verification date: 2026-08-20.
+Repair-suggestion gate completeness verification date: 2026-08-20.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -162,6 +164,7 @@ The message case releases a hold and re-holds it for something other than the ca
 
 A fourth drives an ordinary captain-gated thread through `hold`, `answer`, and `decline`, proves none of them names a `repair` invocation for it and that its body survives every refusal untouched, and proves all three still name the remediation for a decision this script really created.
 A fifth answers three decisions through their owner, drives real retention by closing eleven unrelated tasks until `.tasks.toml`'s `done_keep` moves them into the archive, and proves the audit and the session start both stay silent about them while `verify` still refuses the absent identity at that origin's teardown.
+The fourth also covers both ways an identity drifts off kind `captain` - closed out of band and then moved, and answered through its owner and then moved - and proves `answer` and `decline` name no `repair` command for either and never claim a recorded decision is unrecorded.
 A sixth moves a reviewed decision off kind `captain` with `tasks-axi update`, and proves the audit and the session start both name it and that the finding clears when the kind is restored.
 That case is the one regression that fails if a `--kind captain` filter is ever restored to the audit's listing, which is the only way that detection could be deleted while every other regression stayed green.
 
@@ -236,6 +239,35 @@ $ tasks-axi show capt-decision-ui-q2 --full | grep -E "body|Resolution"
   body: Some unrelated notes.
 ```
 
+An identity can also drift off kind `captain` after the fact, and `repair` refuses on kind before it reads anything else, so every surface that would name `repair` asks that too and gives the audit's own sentence.
+The second half below is the shape that makes a partial gate say something false rather than merely unhelpful: the decision really was answered through its owner, and its resolution record is still on the record.
+
+```text
+$ bin/fm-decision-hold.sh answer samp route --decision-file a.txt   # answered through its owner
+answered: samp-decision-route
+$ tasks-axi update samp-decision-route --kind ship                 # moved off kind captain
+
+$ tasks-axi show samp-decision-route --full | grep -c "Resolution recorded by fm-decision-hold."
+1
+$ bin/fm-decision-hold.sh audit
+samp-decision-route carries a reviewed captain decision identity but is kind ship, so it cannot hold a captain decision; give that work its own identity
+$ bin/fm-decision-hold.sh answer samp route --decision-file a.txt
+fm-decision-hold: samp-decision-route carries a reviewed captain decision identity but is kind ship, so it cannot hold a captain decision; give that work its own identity
+[exit 1]
+$ bin/fm-decision-hold.sh decline samp route --decision-file a.txt
+fm-decision-hold: samp-decision-route carries a reviewed captain decision identity but is kind ship, so it cannot hold a captain decision; give that work its own identity
+[exit 1]
+$ bin/fm-decision-hold.sh repair samp route --decision-file a.txt
+fm-decision-hold: backlog item samp-decision-route is not kind captain
+[exit 1]
+
+$ tasks-axi update samp-decision-route --kind captain              # revert
+$ bin/fm-decision-hold.sh audit
+(no output)
+$ bin/fm-decision-hold.sh verify samp
+verified: samp unresolved-decision inventory
+```
+
 The third failure of the original incident was retention, and this is the boundary it now draws.
 A decision answered through its owner and then archived by ordinary retention is silent, which is what the removal of the absent-identity verdict bought; the same silence is what the coverage bound above admits costs a wrong close that is archived before any session start.
 The `verify` path in the last command is rendered with `<home>` in place of the fixture's temporary directory and is otherwise verbatim.
@@ -261,7 +293,9 @@ fm-decision-hold: captain decision samp-decision-route is absent from <home>/dat
 [exit 1]
 ```
 
-The final verification commands and their exact summarized outputs follow.
+The verification commands and their exact summarized outputs follow.
+This block is re-captured as the last edit of any change that touches this mechanism, after every other edit in that change is complete, because evidence captured mid-change is invalidated by the rest of the change - which has happened on this branch to a commit message, a transcript, a code comment, and this block itself.
+A reader re-verifies it without knowing which commit it was written against by running `bash tests/fm-decision-hold-lifecycle.test.sh` from the repository root and comparing the `ok -` lines below.
 
 ```text
 $ bash tests/fm-decision-hold-lifecycle.test.sh
@@ -269,7 +303,7 @@ ok - report-only unresolved decision is reproduced and completion refuses before
 ok - non-forced scout teardown always requires durable inventory verification
 ok - a declined decision closes with a recorded answer and no routed work
 ok - a decision closed outside the script is repairable and then clears teardown
-ok - no refusal suggests repair for an ordinary captain-gated thread, and every one still does for a real decision
+ok - no refusal suggests repair for an ordinary captain-gated thread or for one repair would refuse, and every one still does for a real decision
 ok - captain decisions closed outside their owner are named at session start and clear only when genuinely closed
 ok - a reviewed decision moved off kind captain is named at session start and clears when its kind is restored
 ok - audit, hold, and repair give one verdict about an origin id that spells the decision separator

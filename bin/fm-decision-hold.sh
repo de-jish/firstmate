@@ -542,18 +542,25 @@ refuse_outside_decision_scope() {  # <hold-id>
 
 # The whole refusal for an identity that is closed with no resolution record,
 # owned here so every gate that meets that state gives one verdict about one
-# identity. Naming `repair` is correct only when BOTH halves hold: the scope rule
-# above says this ledger owns the identity at all, and captain_hold_provenance
-# says `repair` would then act on it rather than refuse. A gate that suggested a
-# command its own owner refuses would be the same contradiction about one
-# identity this script exists to remove, so the two halves are asked here rather
-# than restated at each gate, where one copy would drift from the other.
-# `audit` reads the same two predicates in the detector's register, where the
-# scope half is what keeps an identity out of the report entirely.
+# identity. Naming `repair` is correct only when this gate can answer the whole
+# of "would `repair` accept this identity", so it asks every precondition
+# command_repair asks, in the order command_repair asks them: the scope rule
+# above says this ledger owns the identity at all, kind says the item can hold a
+# captain decision, and captain_hold_provenance says `repair` would then act on
+# it rather than refuse. Asking two thirds of that question is how a gate ends up
+# naming a command its own owner refuses, which is the same contradiction about
+# one identity this script exists to remove. No caller carries its own copy of
+# any clause; a caller that has already refused for one of these reasons simply
+# never reaches here. `audit` reads the same predicates in the detector's
+# register, and the kind verdict below is its wording exactly, so one identity
+# gets one sentence whichever surface a reader meets first.
 # This never returns; every branch exits through fail.
 refuse_out_of_band_close() {  # <show-output> <hold-id> <origin-id> <decision-key>
-  local show=$1 id=$2 origin=$3 key=$4
+  local show=$1 id=$2 origin=$3 key=$4 kind
   decision_hold_in_scope "$show" "$origin" "$key" || refuse_outside_decision_scope "$id"
+  kind=$(show_field "$show" kind)
+  [ "$kind" = captain ] \
+    || fail "$id carries a reviewed captain decision identity but is kind ${kind:--}, so it cannot hold a captain decision; give that work its own identity"
   captain_hold_provenance "$show" "$origin" "$key" \
     || fail "captain decision $id was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it; raise the decision again under a new decision key"
   fail "captain decision $id was closed outside fm-decision-hold with no captain decision recorded; attest the captain's answer with: fm-decision-hold.sh repair $origin $key --decision-file <path>"
