@@ -734,6 +734,126 @@ run_home_bootstrap() {  # <home>
     FM_BOOTSTRAP_NETWORK=skip "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
 }
 
+# A tasks-axi that records every invocation before forwarding to the real one, so
+# what a caller costs is observed rather than assumed.
+install_tasks_axi_recorder() {  # <home>
+  local home=$1
+  cat > "$home/fakebin/tasks-axi" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$home/tasks-axi.log"
+exec "$TASKS_AXI_BIN" "\$@"
+EOF
+  chmod +x "$home/fakebin/tasks-axi"
+}
+
+# The audit exactly as bin/fm-bootstrap.sh's session-start sweep invokes it, with
+# the compatibility verdict handed down, so the recorded invocations are the
+# audit's own backlog reads and not a version probe.
+run_session_audit() {  # <home>
+  local home=$1
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    FM_TASKS_AXI_COMPATIBLE=1 "$ROOT/bin/fm-decision-hold.sh" audit
+}
+
+# The audit runs at every session start, so its price must not rise with the
+# number of decisions a home carries: a control that gets slower the more it
+# protects is a control someone turns off, and then it protects nothing. A home
+# whose decisions are all properly held must be answered from one backlog read,
+# not from one read per decision.
+test_audit_cost_does_not_grow_with_the_decisions_it_protects() {
+  local home id key out small large
+  home=$(make_home audit-cost)
+  id=sample-cost-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample cost" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the cost origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample cost review\n\nSeveral captain choices remain.\n' > "$home/data/$id/report.md"
+  for key in k1 k2; do
+    run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+      --reason "captain $key choice pending" --repo sample >/dev/null \
+      || fail "could not register the $key hold"
+  done
+  install_tasks_axi_recorder "$home"
+
+  : > "$home/tasks-axi.log"
+  out=$(run_session_audit "$home") || fail "audit exited nonzero on a healthy home"
+  [ -z "$out" ] || fail "audit reported a defect while every decision was properly held: $out"
+  small=$(wc -l < "$home/tasks-axi.log" | tr -d ' ')
+
+  for key in k3 k4 k5 k6; do
+    run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+      --reason "captain $key choice pending" --repo sample >/dev/null \
+      || fail "could not register the $key hold"
+  done
+  run_decisions "$home" complete "$id" k1 k2 k3 k4 k5 k6 >/dev/null \
+    || fail "completion failed while every decision was properly held"
+
+  : > "$home/tasks-axi.log"
+  out=$(run_session_audit "$home") || fail "audit exited nonzero on a larger healthy home"
+  [ -z "$out" ] || fail "audit reported a defect while six decisions were properly held: $out"
+  large=$(wc -l < "$home/tasks-axi.log" | tr -d ' ')
+
+  [ "$large" = "$small" ] \
+    || fail "session-start audit cost grew from $small to $large backlog reads when the home gained four more properly held decisions"
+  [ "$small" -le 2 ] \
+    || fail "a healthy home cost $small backlog reads, so the audit is still re-reading decisions one by one"
+
+  # The saving must come from the listing proving those decisions healthy, never
+  # from the audit having stopped looking: one wrong close is still named, and
+  # naming it is what re-reads that one record.
+  tasks_in "$home" "done" "$id-decision-k4" >/dev/null || fail "could not reproduce the direct close"
+  out=$(run_session_audit "$home") || fail "audit exited nonzero on a defective home"
+  assert_contains "$out" "$id-decision-k4 was closed outside fm-decision-hold" \
+    "the cheap listing pass skipped a decision that was closed outside its owner"
+  assert_not_contains "$out" "$id-decision-k1" \
+    "the audit reported a properly held decision as defective"
+  pass "the session-start audit costs one backlog read whatever the number of healthy decisions"
+}
+
+# A session-start line that asserts something the fields printed beside it deny
+# teaches the next agent to dismiss the whole report. This is the shape that used
+# to say a decision was "no longer actively held" while printing held=yes: a hold
+# released and then re-held for something other than the captain.
+test_audit_line_never_contradicts_the_state_it_prints() {
+  local home id out
+  home=$(make_home audit-hold-kind)
+  id=sample-rehold-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample rehold" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the rehold origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample rehold review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
+  run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "could not register the route hold"
+
+  tasks_in "$home" unhold "$id-decision-route" >/dev/null || fail "could not reproduce the unhold"
+  tasks_in "$home" hold "$id-decision-route" --reason "plain rehold" >/dev/null \
+    || fail "could not reproduce the non-captain rehold"
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  assert_contains "$out" "$id-decision-route is open but carries no active captain hold" \
+    "the audit stopped naming a decision that is held for something other than the captain"
+  assert_contains "$out" "held=yes" "the audit hid the held state it based the finding on"
+  assert_contains "$out" "hold_kind=" "the audit did not name the field that makes this a defect"
+  assert_not_contains "$out" "no longer actively held" \
+    "the audit claimed the decision was not held while printing that it is"
+  if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verification passed a decision that is no longer held for the captain"
+  fi
+
+  run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "the remediation the audit printed did not re-activate the decision"
+  out=$(run_decisions "$home" audit)
+  [ -z "$out" ] || fail "the audit still reported the decision after its own remediation ran: $out"
+  pass "an audit line never denies the state it prints beside it"
+}
+
 # The incident, generalized: captain decisions were closed with `tasks-axi done`
 # and `tasks-axi unhold` instead of their owner, and it surfaced only because one
 # scout teardown happened to run its gate. A home that never tore that scout down
@@ -798,7 +918,7 @@ test_audit_reports_decisions_closed_outside_their_owner() {
     "the audit missed the decision that was unheld before it was closed"
   assert_contains "$out" "repair $id shape --decision-file" \
     "unholding a decision left it permanently unattestable"
-  assert_contains "$out" "$id-decision-keep is open but no longer actively held" \
+  assert_contains "$out" "$id-decision-keep is open but carries no active captain hold" \
     "the audit missed the decision that was released without being closed"
   assert_not_contains "$out" "capt-decision-ui-q2" \
     "the audit reported an ordinary captain-gated thread as a decision closed outside its owner"
@@ -809,7 +929,7 @@ test_audit_reports_decisions_closed_outside_their_owner() {
   out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
   assert_contains "$out" "$id-decision-route was closed outside fm-decision-hold" \
     "the session-start report did not carry the audit finding"
-  assert_contains "$out" "$id-decision-keep is open but no longer actively held" \
+  assert_contains "$out" "$id-decision-keep is open but carries no active captain hold" \
     "the session-start report dropped a finding the audit made"
   assert_not_contains "$out" "capt-decision-ui-q" \
     "session start named an ordinary captain-gated thread as a wrongly closed decision"
@@ -1446,6 +1566,8 @@ test_declined_decision_closes_without_routed_work
 test_out_of_band_close_is_repairable_before_teardown
 test_audit_reports_decisions_closed_outside_their_owner
 test_audit_hold_and_repair_agree_on_a_nested_decision_origin
+test_audit_cost_does_not_grow_with_the_decisions_it_protects
+test_audit_line_never_contradicts_the_state_it_prints
 test_unanswered_decision_still_blocks_completion_and_teardown
 test_structured_holds_survive_teardown_and_route_resolution
 test_origin_slug_validation_precedes_path_construction

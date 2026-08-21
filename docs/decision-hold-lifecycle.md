@@ -37,6 +37,12 @@ An identity is in scope when the home recorded it in a `decision_keys=` inventor
 The report's remediation rewrites the body of whatever it names, so a wrong subject would not merely cry wolf: it would manufacture a resolution record on an ordinary captain thread whose id merely spells the decision separator.
 Both in-scope sources also carry the identity's own origin id and decision key, because `<origin-id>-decision-<decision-key>` cannot be split back apart when the origin id spells the separator too, and a re-split id would make `audit`, `hold`, and `repair` disagree about one identity.
 
+Because it runs at every session start, the audit's price may not rise with the number of decisions a home carries; a control that gets slower the more it protects is a control someone turns off.
+One `tasks-axi list --kind captain --fields held,hold_kind,body` call carries the fields a healthy verdict reads, and every identity that listing proves properly held or durably resolved leaves the scan without a further call, so a healthy home costs one backlog read rather than one per decision.
+The listing decides only what to SKIP.
+Nothing is reported on listing evidence: whatever it does not prove healthy is re-read from its own record before a line is printed, so a quoted title, an escaped body, or a body the listing truncated can cost a confirmation call and can never manufacture a finding.
+`bin/fm-bootstrap.sh` brackets the sweep with the same elapsed-time record the deferred network owners use, so that cost stays answerable from the durable timing record.
+
 The `resolve`, `answer`, and `decline` subcommands close active holds, while `repair` attests a hold already closed outside the script.
 All four require a non-empty captain decision file and record the same resolution block in the hold body with the decision digest, routed identities, and a `Resolution mode:` naming the path.
 An exact retry is idempotent, while a changed decision or, for `resolve`, a changed routed-task set is rejected.
@@ -133,6 +139,9 @@ It reproduces all three with the exact commands that caused them - a direct `tas
 It proves `hold` and `verify` now give one verdict about one identity, that an ordinary captain-gated thread whose id merely spells the decision separator never enters the report whether it was held for the captain first or never held at all, and that the report empties only as each decision is closed with the captain's word and not before.
 The unheld close is attested by `repair` rather than left permanently unattestable, while a closed captain-kind task the script never created is still refused.
 A companion regression drives one origin id that spells the decision separator itself through the whole cycle and proves `audit`, `hold`, and `repair` reach a single verdict about that identity, so the report's own printed remediation always acts on the decision the report named.
+Two further regressions pin what makes the detector survivable in daily use.
+The cost case records every `tasks-axi` invocation the session-start audit makes and proves the count does not change when the home grows from two properly held decisions to six, while a decision closed outside its owner is still named and still re-read from its own record.
+The message case releases a hold and re-holds it for something other than the captain, and proves the printed line never denies the state printed beside it, names the `hold_kind` that makes it a defect, and clears only when the remediation it prints is actually run.
 
 The final verification commands and their exact summarized outputs follow.
 
@@ -144,6 +153,8 @@ ok - a declined decision closes with a recorded answer and no routed work
 ok - a decision closed outside the script is repairable and then clears teardown
 ok - captain decisions closed outside their owner are named at session start and clear only when genuinely closed
 ok - audit, hold, and repair give one verdict about an origin id that spells the decision separator
+ok - the session-start audit costs one backlog read whatever the number of healthy decisions
+ok - an audit line never denies the state it prints beside it
 ok - an unanswered decision still blocks completion and resists both unrouted close paths
 ok - captain holds are idempotent, distinct, teardown-safe, Bearings-visible, and durably routed before close
 ok - completion and verification validate origins before constructing paths

@@ -65,6 +65,14 @@
 # id, and nothing enters the report on tasks-axi's `hold_kind` alone, which any
 # captain-gated thread carries: this report's remediation rewrites a task body,
 # so naming the wrong subject would manufacture a false record.
+# It runs at every session start, so its price may not rise with the number of
+# decisions a home carries: a control that gets slower the more it protects is a
+# control someone turns off. One listing call carries the fields a healthy
+# verdict needs and takes every properly held or durably resolved identity out of
+# the scan, and only what that listing cannot prove healthy is re-read from its
+# own record. The listing therefore decides what to SKIP and never what to
+# report, so its quoting and truncation can cost a confirmation call and can
+# never manufacture a finding.
 #
 # `resolve`, `answer`, and `decline` close active holds; `repair` attests a hold
 # already closed outside this script. All four paths require a non-empty captain
@@ -649,12 +657,26 @@ EOF
   printf 'verified: %s unresolved-decision inventory\n' "$origin"
 }
 
+# Every captain-kind identity this home carries, with the extra fields a healthy
+# verdict reads. This is the audit's only unconditional tasks-axi call, so a home
+# whose decisions are all properly held costs exactly one invocation rather than
+# one per decision on the session-start path. A tasks-axi that does not know
+# `--fields` degrades to the plain listing, which proves nothing healthy and
+# leaves every candidate to be confirmed against its own record.
+audit_listing() {
+  local listing
+  if listing=$(tasks_axi list --kind captain --fields held,hold_kind,body 2>/dev/null); then
+    printf '%s\n' "$listing"
+    return 0
+  fi
+  tasks_axi list --kind captain 2>/dev/null || true
+}
+
 # Captain-kind backlog identities that carry the decision-hold separator. The
 # listing is only a cheap prefilter whose first field is always an unquoted id;
 # every candidate is confirmed against its own record before it is reported.
-audit_backlog_identities() {
-  local rows row candidate
-  rows=$(tasks_axi list --kind captain 2>/dev/null) || return 0
+audit_backlog_identities() {  # <listing>
+  local rows=$1 row candidate
   while IFS= read -r row; do
     candidate=${row%%,*}
     candidate=${candidate// /}
@@ -669,6 +691,78 @@ audit_backlog_identities() {
   done <<EOF
 $rows
 EOF
+}
+
+# Identities the listing alone already proves healthy, one per line. Healthy is
+# exactly verify_hold_durable's definition read through the same fields the same
+# backlog serves to `show`, so nothing this skips is a state verify would refuse.
+#
+# The listing is trusted in ONE direction. It can take an identity out of the
+# scan, and it can never put a line into the report: everything it does not prove
+# healthy is re-read from its own record by decision_defect before anything is
+# printed, so a quoting or truncation artifact can only cost a confirmation call,
+# never manufacture a finding. Rows are split through the column order the
+# listing declares in its own header, so a quoted title can never be read as a
+# status field, and a row whose quoting never closes proves nothing. A body the
+# listing truncated cannot carry the resolution record's closing marker, so that
+# identity falls back to its own record rather than being guessed either way.
+audit_healthy_identities() {  # <listing>
+  printf '%s\n' "$1" | awk '
+    function split_row(line, out,   i, n, c, nxt, field, inq, len) {
+      n = 0; field = ""; inq = 0; len = length(line)
+      for (i = 1; i <= len; i++) {
+        c = substr(line, i, 1)
+        if (inq) {
+          if (c == "\\") {
+            nxt = substr(line, i + 1, 1)
+            if (nxt == "\"") { field = field "\""; i++ } else { field = field c }
+          } else if (c == "\"") {
+            inq = 0
+          } else {
+            field = field c
+          }
+        } else if (c == "\"") {
+          inq = 1
+        } else if (c == ",") {
+          out[++n] = field; field = ""
+        } else {
+          field = field c
+        }
+      }
+      out[++n] = field
+      return inq ? 0 : n
+    }
+    function resolved(body,   opened, closed) {
+      opened = index(body, "Resolution recorded by fm-decision-hold.")
+      closed = index(body, "Routed work:")
+      return (opened > 0 && closed > opened)
+    }
+    /^tasks\[[0-9]+\]\{.*\}:$/ {
+      spec = $0
+      sub(/^tasks\[[0-9]+\]\{/, "", spec)
+      sub(/\}:$/, "", spec)
+      ncols = split(spec, names, ",")
+      for (i = 1; i <= ncols; i++) col[names[i]] = i
+      rows = 1
+      next
+    }
+    rows && /^  / {
+      row = $0
+      sub(/^  /, "", row)
+      nf = split_row(row, f)
+      if (nf < 1) next
+      id = f[col["id"]]
+      state = f[col["state"]]
+      kind = f[col["kind"]]
+      held = f[col["held"]]
+      hold_kind = f[col["hold_kind"]]
+      if (id == "" || kind != "captain") next
+      if (state == "queued" && held == "yes" && hold_kind == "captain") { print id; next }
+      if (state == "done" && col["body"] > 0 && resolved(f[col["body"]])) print id
+      next
+    }
+    { rows = 0 }
+  '
 }
 
 # Decision identities this home already recorded as reviewed, one per line as
@@ -701,6 +795,14 @@ audit_inventory_identities() {
 $(printf '%s\n' "$keys" | tr ',' '\n')
 EOF
   done
+}
+
+# Membership of one value in a newline-separated list.
+list_has_line() {  # <list> <value>
+  case $'\n'"$1"$'\n' in
+    *$'\n'"$2"$'\n'*) return 0 ;;
+  esac
+  return 1
 }
 
 # The recorded (origin-id, decision-key) pair for one identity, tab-separated,
@@ -775,26 +877,31 @@ decision_defect() {  # <hold-id> <recorded> <origin-id> <decision-key>
     fi
     return 0
   fi
-  printf '%s is open but no longer actively held (state=%s held=%s), so it neither blocks work nor records an answer; re-activate it with fm-decision-hold.sh hold before closing it with the captain word\n' \
-    "$id" "${state:--}" "${held:--}"
+  printf '%s is open but carries no active captain hold (state=%s held=%s hold_kind=%s), so it neither blocks work nor records an answer; re-activate it with fm-decision-hold.sh hold before closing it with the captain word\n' \
+    "$id" "${state:--}" "${held:--}" "${hold_kind:--}"
 }
 
 command_audit() {
-  local id inventory identities recorded pair origin key
+  local id listing healthy inventory identities recorded pair origin key
   [ "$#" -eq 0 ] || { usage >&2; exit 2; }
   # Detect-only, and deliberately silent when the backlog cannot be read at all:
   # bin/fm-bootstrap.sh reports an unusable tasks-axi on its own MISSING line, so
   # this command never becomes a second place that discovers a missing tool.
   fm_tasks_axi_compatible || return 0
+  listing=$(audit_listing)
+  healthy=$(audit_healthy_identities "$listing")
   inventory=$(audit_inventory_identities | sed '/^$/d' | LC_ALL=C sort -u)
   identities=$(
     {
-      audit_backlog_identities
+      audit_backlog_identities "$listing"
       printf '%s\n' "$inventory" | cut -f1
     } | sed '/^$/d' | LC_ALL=C sort -u
   )
   while IFS= read -r id; do
     [ -n "$id" ] || continue
+    if list_has_line "$healthy" "$id"; then
+      continue
+    fi
     recorded=0
     origin=''
     key=''

@@ -1197,6 +1197,7 @@ EOF
 }
 
 detect_local_config() {
+  local __fm_timing_stamp
   # Worktree-tangle check: the firstmate primary checkout (FM_ROOT) must sit on its
   # default branch, not a feature branch (see fm-tangle-lib.sh). Scoped to the
   # primary only; detached-HEAD worktrees and secondmate homes never trip it.
@@ -1237,7 +1238,13 @@ detect_local_config() {
     echo "MISSING_MANUAL: cursor-agent (instructions: $(manual_install_url cursor-agent))"
   fi
   crew_dispatch_validate
+  # The decision-hold sweep reads the backlog, so it is the one local detection
+  # here whose cost tracks how much a home carries rather than being fixed. It is
+  # bracketed like the deferred network owners so that cost stays answerable from
+  # the durable record instead of from someone happening to measure it.
+  __fm_timing_stamp=$(fm_timing_now_ms)
   detect_decision_holds
+  fm_timing_record phase decision-holds "$__fm_timing_stamp"
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] \
     && ! fm_backlog_backend_manual "$CONFIG" && fm_tasks_axi_compatible; then
     echo "BOOTSTRAP_INFO: tasks-axi available"
