@@ -1,0 +1,35 @@
+
+=== 0. The checkout as the incident found it ===
+$ git -C <firstmate> rev-parse --is-shallow-repository
+true
+
+=== 1. REPRODUCE: a validation push from a branch of that checkout ===
+$ git push <receiver> fm/shallow-probe
+To file:///tmp/fm-evidence-shallow-auXYUh/receiver-before.git
+ ! [remote rejected] fm/shallow-probe -> fm/shallow-probe (shallow update not allowed)
+error: failed to push some refs to 'file:///tmp/fm-evidence-shallow-auXYUh/receiver-before.git'
+[exit 1]
+
+=== 2. CATCH: session start names it before any work depends on it ===
+$ fm-bootstrap.sh   (session-start digest, SHALLOW line only)
+SHALLOW: firstmate checkout is a shallow clone, so a validation push from any worktree of it can be rejected with 'shallow update not allowed' deep inside a pipeline run - deepen it with: git -C /tmp/fm-evidence-shallow-auXYUh/firstmate fetch --unshallow
+
+=== 3. A read-only (detect-only) session keeps the alarm and hands the repair to the lock holder ===
+$ fm-bootstrap.sh FM_BOOTSTRAP_DETECT_ONLY=1  (session-start digest, SHALLOW line only)
+SHALLOW: firstmate checkout is a shallow clone, so a validation push from any worktree of it can be rejected with 'shallow update not allowed' deep inside a pipeline run - read-only session must leave the deepening fetch to the session holding the fleet lock
+$ fm-bootstrap.sh FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_LOCKED=1  (session-start digest, SHALLOW line only)
+SHALLOW: firstmate checkout is a shallow clone, so a validation push from any worktree of it can be rejected with 'shallow update not allowed' deep inside a pipeline run - deepen it with: git -C /tmp/fm-evidence-shallow-auXYUh/firstmate fetch --unshallow
+
+=== 4. REVERT: run the remediation the line printed ===
+$ git -C <firstmate> fetch --unshallow origin
+[exit 0]
+$ git push <receiver> fm/shallow-probe
+To file:///tmp/fm-evidence-shallow-auXYUh/receiver-after.git
+ * [new branch]      fm/shallow-probe -> fm/shallow-probe
+[exit 0]
+
+=== 5. The alarm clears only because the checkout was actually deepened ===
+$ fm-bootstrap.sh   (session-start digest, SHALLOW line only)
+(no SHALLOW line)
+
+scratch checkout: /tmp/fm-evidence-shallow-auXYUh/firstmate

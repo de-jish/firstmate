@@ -1,0 +1,9 @@
+Pre-existing failure check: tests/fm-teardown.test.sh
+
+$ (branch 501a5a4) bash tests/fm-teardown.test.sh
+not ok - herdr-preflight-missing-adapter: teardown continued without its required preflight
+
+$ (clean extraction of base 0d4afd4) bash tests/fm-teardown.test.sh
+not ok - herdr-preflight-missing-adapter: teardown continued without its required preflight
+
+Same case fails identically on the base commit, so it is pre-existing and not caused by this change.

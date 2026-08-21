@@ -1,0 +1,50 @@
+
+=== in_flight: one command tasks-axi advertises takes a healthy hold there ===
+$ tasks-axi start samp-decision-route
+ok: start samp-decision-route -> In flight
+help[1]:
+  - Run `tasks-axi done samp-decision-route --pr <url>` when it ships
+$ tasks-axi show samp-decision-route --full | grep -E "state:|held:|hold_kind:"
+  state: in_flight
+  held: yes
+  hold_kind: captain
+$ tasks-axi show samp-route-work --full | grep "blocked:"
+  blocked: yes
+
+=== the verdict: no mutating command, no claim the fields deny ===
+$ fm-decision-hold.sh audit
+samp-decision-route is open in a state fm-decision-hold cannot close (state=in_flight held=yes hold_kind=captain), so no captain answer can be recorded on it while it stays there; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"
+[exit 0]
+$ fm-decision-hold.sh audit
+samp-decision-route is open in a state fm-decision-hold cannot close (state=in_flight held=yes hold_kind=captain), so no captain answer can be recorded on it while it stays there; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"
+[exit 0]
+record unchanged by the audit read: yes
+$ fm-decision-hold.sh verify samp
+fm-decision-hold: captain decision samp-decision-route is neither actively held nor durably resolved
+[exit 1]
+
+=== the recovery this document records for in_flight: one reopen, no close ===
+$ tasks-axi reopen samp-decision-route
+ok: reopen samp-decision-route -> Queued
+help[1]:
+  - Run `tasks-axi start samp-decision-route` to move it to in flight
+$ tasks-axi show samp-decision-route --full | grep -E "state:|held:|hold_kind:"
+  state: queued
+  held: yes
+  hold_kind: captain
+$ tasks-axi show samp-route-work --full | grep "blocked:"
+  blocked: yes
+$ fm-decision-hold.sh audit
+(no output)
+[exit 0]
+$ fm-decision-hold.sh resolve samp route --decision-file /tmp/fm-evidence-inflight-pQeagR/a.txt --routed-to samp-route-work
+resolved: samp-decision-route -> samp-route-work
+[exit 0]
+$ fm-decision-hold.sh audit
+(no output)
+[exit 0]
+$ fm-decision-hold.sh verify samp
+verified: samp unresolved-decision inventory
+[exit 0]
+
+scratch home: /tmp/fm-evidence-inflight-pQeagR
