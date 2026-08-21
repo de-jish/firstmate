@@ -79,8 +79,10 @@ So `hold`, `answer`, and `decline` reach one shared gate before they print a `re
 That gate asks `repair`'s own kind and provenance preconditions, so it never names a command `repair` would refuse, PLUS a suggestion-scope rule `repair` deliberately does not have.
 It therefore answers a narrower question than `repair` does - should this identity be handed a repair command, not would `repair` accept it - and the reasoning for keeping that asymmetry lives beside the gate in `bin/fm-decision-hold.sh`, because that is where someone would be tempted to tidy it away.
 An identity the scope rule declines is refused with a text that states only what the rule tested, and never asserts what `repair` would do with it, because `repair` reads a wider signal and may well accept it.
-An identity that fails any of them is refused with a shared text that names no mutating command, and the kind refusal is the audit's own sentence verbatim, so one identity gets one verdict across those four surfaces.
+An identity that fails any of them is refused with a shared text that names no mutating command, and for a closed identity the kind and lost-provenance refusals are the audit's own sentences verbatim, so one closed identity gets one verdict across those four surfaces.
+The closed-identity qualifier is load-bearing rather than decoration, because only a closed identity routes through that gate: an identity whose kind drifted while it is still open gets the audit's sentence at session start, and `hold` and `answer` refuse it in each site's own shorter wording instead.
 That kind sentence splits on whether the record still carries a durable resolution block, because an identity that already holds a recorded captain answer must be restored rather than re-raised, and it names the `tasks-axi update` that actually clears the finding under either shape.
+The lost-provenance sentence names the same-key recovery for the same reason: `complete` recorded that key in the origin's inventory and `verify` reads that inventory, so raising the decision again under a fresh key answers the captain's question while stranding the old key, and the finding and the origin's completion gate both keep refusing.
 The refusals themselves are unchanged at every site; only the remediation a lookalike is handed changed.
 
 ## Answer-time closure
@@ -139,6 +141,7 @@ Kind-drift detection verification date: 2026-08-20.
 Repair-suggestion gate completeness verification date: 2026-08-20.
 Kind-drift remediation verification date: 2026-08-20.
 Out-of-scope refusal wording and hold routing verification date: 2026-08-20.
+Lost-provenance remediation verification date: 2026-08-21.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -173,6 +176,8 @@ A fifth answers three decisions through their owner, drives real retention by cl
 The fourth also covers both ways an identity drifts off kind `captain` - closed out of band and then moved, and answered through its owner and then moved - and proves `hold`, `answer`, and `decline` name no `repair` command for either, give the audit's own sentence, and never claim a recorded decision is unrecorded.
 It closes with the identity the scope rule declines but `repair` accepts, and proves the refusal states only what the rule tested while `repair` still attests it, so no surface asserts something a reader can disprove in one command.
 A sixth moves a reviewed decision off kind `captain` with `tasks-axi update`, and proves the audit and the session start both name it and that the finding clears when the kind is restored.
+A seventh follows the lost-provenance remediation instead of paraphrasing it: it parses the three commands out of the audit's own line, substitutes the reason and decision-file placeholders an operator supplies, runs them in the printed order, and proves that the audit then falls silent and the origin passes `verify` again.
+It executes the printed text rather than the code path behind it, so a remediation that stops being followable fails the test even when every predicate still behaves.
 That case is the one regression that fails if a `--kind captain` filter is ever restored to the audit's listing, which is the only way that detection could be deleted while every other regression stayed green.
 
 ### Reproduce, catch, revert, as of 2026-08-20
@@ -280,6 +285,39 @@ $ bin/fm-decision-hold.sh verify samp
 verified: samp unresolved-decision inventory
 ```
 
+An identity can also lose both captain-hold signals, and then `repair` cannot attest it at all, so the remediation has to rebuild the identity rather than name a command.
+It rebuilds the same one, because `complete` recorded that decision key in the origin's inventory and `verify` reads that inventory at teardown: the middle block below is the plausible wrong move, raising the decision again under a fresh key, which answers the captain's question and leaves the origin permanently unable to finish.
+The last block is the remediation the line prints, run exactly as printed.
+
+```text
+$ tasks-axi unhold samp-decision-route      # clears hold_kind
+$ tasks-axi update samp-decision-route --body "Notes rewritten out of band."
+$ tasks-axi done samp-decision-route        # both signals now gone
+
+$ bin/fm-decision-hold.sh audit
+samp-decision-route was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and answer it with tasks-axi reopen samp-decision-route, then tasks-axi hold samp-decision-route --reason "<reason>" --kind captain, then fm-decision-hold.sh answer samp route --decision-file <path>; raising the decision again under a new key strands samp-decision-route in samp's reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate
+$ bin/fm-decision-hold.sh repair samp route --decision-file a.txt
+fm-decision-hold: backlog item samp-decision-route was never held for the captain; repair records a captain decision only on a captain hold
+[exit 1]
+
+$ bin/fm-decision-hold.sh hold samp route-2 ... && ... answer samp route-2 --decision-file a.txt
+answered: samp-decision-route-2
+$ bin/fm-decision-hold.sh verify samp        # the new key changed nothing here
+fm-decision-hold: captain decision samp-decision-route is neither actively held nor durably resolved
+[exit 1]
+$ bin/fm-decision-hold.sh audit
+samp-decision-route was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and answer it with tasks-axi reopen samp-decision-route, then tasks-axi hold samp-decision-route --reason "<reason>" --kind captain, then fm-decision-hold.sh answer samp route --decision-file <path>; raising the decision again under a new key strands samp-decision-route in samp's reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate
+
+$ tasks-axi reopen samp-decision-route                                              # the printed remediation
+$ tasks-axi hold samp-decision-route --reason "captain route choice pending" --kind captain
+$ bin/fm-decision-hold.sh answer samp route --decision-file a.txt
+answered: samp-decision-route
+$ bin/fm-decision-hold.sh audit
+(no output)
+$ bin/fm-decision-hold.sh verify samp
+verified: samp unresolved-decision inventory
+```
+
 The third failure of the original incident was retention, and this is the boundary it now draws.
 A decision answered through its owner and then archived by ordinary retention is silent, which is what the removal of the absent-identity verdict bought; the same silence is what the coverage bound above admits costs a wrong close that is archived before any session start.
 The `verify` path in the last command is rendered with `<home>` in place of the fixture's temporary directory and is otherwise verbatim.
@@ -317,6 +355,7 @@ ok - a declined decision closes with a recorded answer and no routed work
 ok - a decision closed outside the script is repairable and then clears teardown
 ok - no refusal suggests repair for an ordinary captain-gated thread or for one repair would refuse, and every one still does for a real decision
 ok - captain decisions closed outside their owner are named at session start and clear only when genuinely closed
+ok - following the printed lost-provenance remediation clears the finding and unblocks the origin
 ok - a reviewed decision moved off kind captain is named at session start and clears when its kind is restored
 ok - audit, hold, and repair give one verdict about an origin id that spells the decision separator
 ok - decisions answered through their owner stay silent once retention archives them, while verify still refuses at teardown
@@ -335,35 +374,4 @@ ok - a channel source with no decision binding closes nothing
 ok - an any-origin bound source closes full-identity holds across origins
 ok - the answer path keeps every guard the unrouted close path already had
 ok - the chat channel feeds the same keyed-answer intake a captured review does
-
-$ bash tests/fm-fleet-snapshot-view.test.sh
-ok - backlog normalization preserves strict roles and resolves every blocker compatibly
-ok - durable captain-held transfer closes the duplicate live status decision
-ok - snapshot parses tasks-axi rows and respects operational overrides
-
-$ bash tests/fm-bearings-snapshot.test.sh
-ok - a completed scout with decision-like report prose is a pointer, not pending
-ok - an authoritative captain hold surfaces end-to-end
-ok - action-free items (working/done/queued/landed) do not leak into Captain's Call
-ok - main and secondmate captain actionability use the same blocker readiness
-
-$ bash tests/fm-send-resolve-key.test.sh
-ok - fm-send --resolve-key: the answer send itself closes the open decision
-ok - fm-send --resolve-key: a key that is not open refuses loudly before anything is sent
-(13 assertions total; the status-log ledger's behavior is unchanged)
-
-$ bash tests/fm-brief.test.sh
-ok - fm-brief.sh: investigation and visual-review completions load the shared decision policy
-
-$ bash tests/fm-teardown.test.sh
-ok - the run abort and the leaked-process reap both complete before the destructive worktree return
-
-$ bin/fm-lint.sh
-fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)
-
-$ bin/fm-doc-audience-check.sh
-fm-doc-audience-check: ok surfaces=70 local_links=255
-
-$ git diff --check
-(no output)
 ```

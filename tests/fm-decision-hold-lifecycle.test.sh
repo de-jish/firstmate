@@ -830,6 +830,8 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
   out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
   assert_contains "$out" "$id-decision-shape was closed outside fm-decision-hold and no longer carries captain-hold provenance" \
     "the audit stopped naming the decision it can no longer attest"
+  assert_contains "$out" "tasks-axi reopen $id-decision-shape" \
+    "the audit stopped naming the recovery that clears the decision it cannot attest"
   if run_decisions "$home" hold "$id" shape --title "Choose the sample shape" \
     --reason "captain shape choice pending" --repo sample > "$home/shape-hold.out" 2> "$home/shape-hold.err"; then
     fail "hold accepted a decision closed with no captain answer"
@@ -844,6 +846,8 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
     "answer named a repair command that repair itself refuses"
   assert_grep "no longer carries captain-hold provenance" "$home/shape-answer.err" \
     "answer gave a different verdict than the audit about one identity"
+  assert_grep "tasks-axi reopen $id-decision-shape" "$home/shape-answer.err" \
+    "answer named a different recovery than the audit for one identity"
   if run_decisions "$home" decline "$id" shape --decision-file "$home/decision.txt" \
     > "$home/shape-decline.out" 2> "$home/shape-decline.err"; then
     fail "decline closed a decision that was already closed outside the script"
@@ -852,6 +856,8 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
     "decline named a repair command that repair itself refuses"
   assert_grep "no longer carries captain-hold provenance" "$home/shape-decline.err" \
     "decline gave a different verdict than the audit about one identity"
+  assert_grep "tasks-axi reopen $id-decision-shape" "$home/shape-decline.err" \
+    "decline named a different recovery than the audit for one identity"
 
   # In scope and no longer kind captain: `repair` refuses on kind before it reads
   # anything else, so a surface that suggests it here names a command its own
@@ -969,6 +975,69 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
     || fail "repair refused an identity it accepts, so this case reproduces nothing"
   assert_contains "$out" "repaired: $id-decision-route" "repair attested a different identity"
   pass "no refusal suggests repair for an ordinary captain-gated thread or for one repair would refuse, and every one still does for a real decision"
+}
+
+# A remediation is worth printing only if following it exactly ends the finding.
+# So this one is followed mechanically rather than paraphrased: the commands are
+# parsed out of the audit's own line, given the two substitutions an operator
+# makes, and run in the printed order, which exercises the printed path instead
+# of the code path behind it. Both ends are asserted because clearing the audit
+# line is not the point on its own - the origin has this key in its recorded
+# inventory, so the recovery has only worked when `verify` passes again.
+test_printed_lost_provenance_remediation_clears_the_finding() {
+  local home id hold_id line remediation cmd prog out verbs=""
+  local -a argv
+  home=$(make_home lost-provenance-remediation)
+  id=sample-route-review
+  hold_id="$id-decision-route"
+  printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample scope" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the lost-provenance origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample scope review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
+  run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "could not register the route hold"
+  run_decisions "$home" complete "$id" route >/dev/null \
+    || fail "completion failed while the route decision was properly held"
+  tasks_in "$home" unhold "$hold_id" >/dev/null || fail "could not clear the captain hold kind"
+  tasks_in "$home" update "$hold_id" --body "Notes rewritten out of band." >/dev/null \
+    || fail "could not replace the creation body"
+  tasks_in "$home" "done" "$hold_id" >/dev/null || fail "could not close the route decision"
+
+  line=$(run_decisions "$home" audit | grep -F "$hold_id ") \
+    || fail "the audit stopped naming the decision it can no longer attest"
+  assert_contains "$line" " answer it with " \
+    "the audit printed no remediation a reader can follow to silence"
+  remediation=${line#* answer it with }
+  remediation=${remediation%%; raising*}
+  printf '%s\n' "$remediation" \
+    | awk '{ gsub(/, then /, "\n"); print }' \
+    | sed -e "s#<reason>#the captain answered this route#" -e "s#<path>#$home/decision.txt#" \
+    > "$home/remediation.sh"
+  [ "$(wc -l < "$home/remediation.sh")" -eq 3 ] \
+    || fail "the printed remediation was not three commands: $remediation"
+  while IFS= read -r cmd; do
+    eval "argv=($cmd)"
+    prog=${argv[0]}
+    verbs="$verbs $prog:${argv[1]}"
+    case $prog in
+      tasks-axi) tasks_in "$home" "${argv[@]:1}" >/dev/null || fail "printed remediation step failed: $cmd" ;;
+      fm-decision-hold.sh) run_decisions "$home" "${argv[@]:1}" >/dev/null || fail "printed remediation step failed: $cmd" ;;
+      *) fail "the printed remediation named a program this test cannot run: $prog" ;;
+    esac
+  done < "$home/remediation.sh"
+  [ "$verbs" = " tasks-axi:reopen tasks-axi:hold fm-decision-hold.sh:answer" ] \
+    || fail "the printed remediation was not reopen, re-hold, answer in that order:$verbs"
+
+  run_decisions "$home" verify "$id" >/dev/null \
+    || fail "the origin still cannot pass its completion gate after its own remediation was followed"
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  [ -z "$out" ] \
+    || fail "the audit still reports a defect after its own remediation was followed: $out"
+  pass "following the printed lost-provenance remediation clears the finding and unblocks the origin"
 }
 
 # Session-start bootstrap, scoped to this fixture home and kept local: the
@@ -1921,6 +1990,7 @@ test_declined_decision_closes_without_routed_work
 test_out_of_band_close_is_repairable_before_teardown
 test_no_surface_suggests_repair_for_an_ordinary_captain_thread
 test_audit_reports_decisions_closed_outside_their_owner
+test_printed_lost_provenance_remediation_clears_the_finding
 test_audit_names_a_reviewed_decision_moved_off_kind_captain
 test_audit_hold_and_repair_agree_on_a_nested_decision_origin
 test_correctly_resolved_decisions_stay_silent_after_retention_archives_them

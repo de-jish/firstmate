@@ -565,6 +565,23 @@ kind_drift_verdict() {  # <hold-id> <kind> <body>
     "$id" "$kind" "$id"
 }
 
+# The lost-provenance verdict, owned once for the same reason: `audit` and the
+# out-of-band close gate both print it, about the same identity, and a reader who
+# gets two answers has no way to pick. The remediation is the same-key recovery
+# because that is the only one that ends with the origin able to finish. `complete`
+# recorded this key in the origin's reviewed inventory, and `verify` reads that
+# inventory on every completion attempt, so a decision raised again under a fresh
+# key answers the captain's question while leaving the old key sitting there
+# unattestable: the finding keeps printing and the origin's completion gate keeps
+# refusing. Reopening the identity restores the row `verify` is looking for,
+# re-holding it with --kind captain restores the signal every close path checks,
+# and `answer` then writes the durable resolution block through this ledger, which
+# is what `repair` could no longer attest for it.
+lost_provenance_verdict() {  # <hold-id> <origin-id> <decision-key>
+  printf '%s was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and answer it with tasks-axi reopen %s, then tasks-axi hold %s --reason "<reason>" --kind captain, then fm-decision-hold.sh answer %s %s --decision-file <path>; raising the decision again under a new key strands %s in %s'"'"'s reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate' \
+    "$1" "$1" "$1" "$2" "$3" "$1" "$2"
+}
+
 # The whole refusal for an identity that is closed with no resolution record,
 # owned here so the surfaces that route to it give one verdict about one
 # identity. `hold`, `answer`, and `decline` all reach it for a closed identity
@@ -591,7 +608,7 @@ refuse_out_of_band_close() {  # <show-output> <hold-id> <origin-id> <decision-ke
   [ "$kind" = captain ] \
     || fail "$(kind_drift_verdict "$id" "$kind" "$(show_field "$show" body)")"
   captain_hold_provenance "$show" "$origin" "$key" \
-    || fail "captain decision $id was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it; raise the decision again under a new decision key"
+    || fail "$(lost_provenance_verdict "$id" "$origin" "$key")"
   fail "captain decision $id was closed outside fm-decision-hold with no captain decision recorded; attest the captain's answer with: fm-decision-hold.sh repair $origin $key --decision-file <path>"
 }
 
@@ -992,8 +1009,7 @@ decision_defect() {  # <hold-id> <recorded> <origin-id> <decision-key>
       printf '%s was closed outside fm-decision-hold with no captain decision recorded; attest the captain answer with: fm-decision-hold.sh repair %s %s --decision-file <path>\n' \
         "$id" "$origin" "$key"
     else
-      printf '%s was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it; raise the decision again under a new decision key\n' \
-        "$id"
+      printf '%s\n' "$(lost_provenance_verdict "$id" "$origin" "$key")"
     fi
     return 0
   fi
