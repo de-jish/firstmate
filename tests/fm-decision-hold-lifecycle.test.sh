@@ -1114,6 +1114,53 @@ test_audit_reports_decisions_closed_outside_their_owner() {
   pass "captain decisions closed outside their owner are named at session start and clear only when genuinely closed"
 }
 
+# A decision this home recorded as reviewed can be moved off kind captain out of
+# band, and then it holds nothing: the captain is not gated on it, `verify`
+# refuses it, and its origin cannot finish. Naming that is the whole reason the
+# audit reads an unfiltered backlog listing, so restoring a `--kind captain`
+# filter - which reads like a free cost win, since the listing is the candidate
+# set - would delete this detection silently. That is what this case exists to
+# make loud: it is the only regression that fails when the filter comes back.
+test_audit_names_a_reviewed_decision_moved_off_kind_captain() {
+  local home id out
+  home=$(make_home audit-kind-drift)
+  id=sample-kind-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample kind" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the kind-drift origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample kind review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
+  run_decisions "$home" hold "$id" shape --title "Choose the sample shape" \
+    --reason "captain shape choice pending" --repo sample >/dev/null \
+    || fail "could not register the shape hold"
+  run_decisions "$home" complete "$id" shape >/dev/null \
+    || fail "completion failed while the decision was properly held"
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero on a healthy home"
+  [ -z "$out" ] || fail "audit reported a defect while the decision was properly held: $out"
+
+  tasks_in "$home" update "$id-decision-shape" --kind ship >/dev/null \
+    || fail "could not move the reviewed decision off kind captain"
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  assert_contains "$out" "$id-decision-shape carries a reviewed captain decision identity but is kind ship" \
+    "the audit went silent about a reviewed decision that can no longer hold one"
+  out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
+  assert_contains "$out" "$id-decision-shape carries a reviewed captain decision identity but is kind ship" \
+    "session start did not carry the finding the audit made"
+  if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verification passed a reviewed decision that is no longer kind captain"
+  fi
+
+  tasks_in "$home" update "$id-decision-shape" --kind captain >/dev/null \
+    || fail "could not restore the decision to kind captain"
+  out=$(run_decisions "$home" audit)
+  [ -z "$out" ] || fail "the audit still reported the decision after its kind was restored: $out"
+  run_decisions "$home" verify "$id" >/dev/null \
+    || fail "the restored decision did not satisfy the completion gate"
+  pass "a reviewed decision moved off kind captain is named at session start and clears when its kind is restored"
+}
+
 # An origin id may spell the decision separator itself - `capt-decision-ui-q2` is
 # a real shape in this repository - and `<origin>-decision-<key>` cannot be split
 # back apart once it is joined. The audit, `hold`, and `repair` must still reach
@@ -1708,6 +1755,7 @@ test_declined_decision_closes_without_routed_work
 test_out_of_band_close_is_repairable_before_teardown
 test_no_surface_suggests_repair_for_an_ordinary_captain_thread
 test_audit_reports_decisions_closed_outside_their_owner
+test_audit_names_a_reviewed_decision_moved_off_kind_captain
 test_audit_hold_and_repair_agree_on_a_nested_decision_origin
 test_correctly_resolved_decisions_stay_silent_after_retention_archives_them
 test_audit_cost_does_not_grow_with_the_decisions_it_protects

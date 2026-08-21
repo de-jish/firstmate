@@ -129,6 +129,7 @@ Cross-origin answer-time closure verification date: 2026-08-19.
 Session-start audit and out-of-band-close provenance verification date: 2026-08-20.
 Remediation-suggestion scope verification date: 2026-08-20.
 Archived-resolution silence verification date: 2026-08-20.
+Kind-drift detection verification date: 2026-08-20.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -160,6 +161,8 @@ The message case releases a hold and re-holds it for something other than the ca
 
 A fourth drives an ordinary captain-gated thread through `hold`, `answer`, and `decline`, proves none of them names a `repair` invocation for it and that its body survives every refusal untouched, and proves all three still name the remediation for a decision this script really created.
 A fifth answers three decisions through their owner, drives real retention by closing eleven unrelated tasks until `.tasks.toml`'s `done_keep` moves them into the archive, and proves the audit and the session start both stay silent about them while `verify` still refuses the absent identity at that origin's teardown.
+A sixth moves a reviewed decision off kind `captain` with `tasks-axi update`, and proves the audit and the session start both name it and that the finding clears when the kind is restored.
+That case is the one regression that fails if a `--kind captain` filter is ever restored to the audit's listing, which is the only way that detection could be deleted while every other regression stayed green.
 
 ### Reproduce, catch, revert, as of 2026-08-20
 
@@ -167,6 +170,11 @@ The transcript recorded in commit `bd041d4` is superseded, not broken.
 It is accurate evidence of what the guard emitted the day it shipped, and one of its lines no longer reproduces because the message was corrected afterwards: the released-hold finding read `is open but no longer actively held (state=queued held=no)`, which denied the state it printed whenever the identity had been re-held for something other than the captain, and it now reads `is open but carries no active captain hold (state=queued held=no hold_kind="-")`.
 Every block below was captured by running the commands against the shipped code, and every command in every block was re-run against the code as it stands after the last behavioural change on this branch, which removed the audit's absent-identity verdict.
 Evidence pinned to a state that later moves is the defect this branch fixed once already, so re-running is what these blocks cost rather than re-reading them.
+
+Where this transcript lives is settled, and it is recorded here so a future reader does not re-derive it.
+The maintainer verification the guards owe is the reproduce-catch-revert cycle above, and the pipeline that produced these fix rounds writes subject-only commits - `git log -1 --format=%b` returns nothing for every fix-round commit on this branch - so the literal "in the commit message" form cannot be produced from inside a run.
+The current dated transcript therefore lives in this document, which is where the guidelines put maintainer verification, and it is carried into the pull request body, which is where a reviewer meets the change.
+Commit `bd041d4` keeps its original transcript as dated evidence of what was true the day it shipped, superseded rather than broken, with the one line that changed named above.
 
 ```text
 $ bin/fm-decision-hold.sh audit          # every decision properly held
@@ -262,6 +270,7 @@ ok - a declined decision closes with a recorded answer and no routed work
 ok - a decision closed outside the script is repairable and then clears teardown
 ok - no refusal suggests repair for an ordinary captain-gated thread, and every one still does for a real decision
 ok - captain decisions closed outside their owner are named at session start and clear only when genuinely closed
+ok - a reviewed decision moved off kind captain is named at session start and clears when its kind is restored
 ok - audit, hold, and repair give one verdict about an origin id that spells the decision separator
 ok - decisions answered through their owner stay silent once retention archives them, while verify still refuses at teardown
 ok - the session-start audit costs one backlog read whatever the number of healthy decisions
