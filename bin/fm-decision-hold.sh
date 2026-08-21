@@ -540,6 +540,25 @@ refuse_outside_decision_scope() {  # <hold-id>
   fail "backlog item $1 is an ordinary captain-gated backlog item rather than a captain decision hold this script created, so no captain decision can be recorded on it; raise the decision again under a new decision key"
 }
 
+# The whole refusal for an identity that is closed with no resolution record,
+# owned here so every gate that meets that state gives one verdict about one
+# identity. Naming `repair` is correct only when BOTH halves hold: the scope rule
+# above says this ledger owns the identity at all, and captain_hold_provenance
+# says `repair` would then act on it rather than refuse. A gate that suggested a
+# command its own owner refuses would be the same contradiction about one
+# identity this script exists to remove, so the two halves are asked here rather
+# than restated at each gate, where one copy would drift from the other.
+# `audit` reads the same two predicates in the detector's register, where the
+# scope half is what keeps an identity out of the report entirely.
+# This never returns; every branch exits through fail.
+refuse_out_of_band_close() {  # <show-output> <hold-id> <origin-id> <decision-key>
+  local show=$1 id=$2 origin=$3 key=$4
+  decision_hold_in_scope "$show" "$origin" "$key" || refuse_outside_decision_scope "$id"
+  captain_hold_provenance "$show" "$origin" "$key" \
+    || fail "captain decision $id was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it; raise the decision again under a new decision key"
+  fail "captain decision $id was closed outside fm-decision-hold with no captain decision recorded; attest the captain's answer with: fm-decision-hold.sh repair $origin $key --decision-file <path>"
+}
+
 command_hold() {
   local origin=${1:-} key=${2:-} title='' reason='' repo='' id show state kind existing_title body
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
@@ -576,10 +595,7 @@ command_hold() {
       if body_has_resolution_record "$body"; then
         fail "captain decision $id is already durably resolved; use a new decision key for a new decision"
       fi
-      decision_hold_in_scope "$show" "$origin" "$key" || refuse_outside_decision_scope "$id"
-      captain_hold_provenance "$show" "$origin" "$key" \
-        || fail "captain decision $id was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it; raise the decision again under a new decision key"
-      fail "captain decision $id was closed outside fm-decision-hold with no captain decision recorded; attest the captain's answer with: fm-decision-hold.sh repair $origin $key --decision-file <path>"
+      refuse_out_of_band_close "$show" "$id" "$origin" "$key"
     fi
     [ "$existing_title" = "$title" ] || fail "existing captain hold $id has a different title"
   else
@@ -715,9 +731,13 @@ EOF
 # not an oversight: this listing is the audit's whole candidate set, so filtering
 # it to captain-kind rows would silently delete the one defect that is ABOUT the
 # kind - an identity this home recorded as a reviewed decision that is no longer
-# kind captain, which decision_defect names below. Restoring the filter would
-# look like a free cost win and would leave that detection dead with every
-# regression still green, because the cost regression measures a healthy home.
+# kind captain, which decision_defect names below. Restoring the filter looks
+# like a free cost win, and what stops it from being a silent deletion is
+# tests/fm-decision-hold-lifecycle.test.sh's
+# test_audit_names_a_reviewed_decision_moved_off_kind_captain: that identity
+# leaves the candidate set the moment the filter comes back, so the assertion
+# fails. It is the only regression that does, because every other one seeds a
+# captain-kind home.
 # This is the audit's only unconditional tasks-axi call, so a home whose
 # decisions are all properly held costs exactly one invocation rather than one
 # per decision on the session-start path. A tasks-axi that does not know
@@ -1077,8 +1097,7 @@ close_unrouted_hold() {  # <mode> <outcome-word> <origin-id> <decision-key> <fla
   hold_show=$(task_show "$id") || fail "captain hold $id is absent from $FM_HOME/data/backlog.md"
   state=$(show_field "$hold_show" state)
   if [ "$state" = "done" ]; then
-    decision_hold_in_scope "$hold_show" "$origin" "$key" || refuse_outside_decision_scope "$id"
-    fail "captain hold $id was closed outside fm-decision-hold; attest the captain's answer with: fm-decision-hold.sh repair $origin $key --decision-file <path>"
+    refuse_out_of_band_close "$hold_show" "$id" "$origin" "$key"
   fi
   verify_hold_active "$id"
   hold_body=$(show_field "$hold_show" body)

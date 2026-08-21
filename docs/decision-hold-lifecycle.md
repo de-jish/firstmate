@@ -74,7 +74,8 @@ Because a successful repair replaces that creation body, the already-repaired re
 
 `hold_kind` is enough for `repair` to act on an identity the caller named itself, and it is never enough for another command to name that identity to the caller.
 Acting and suggesting are different questions because a suggestion is followed: a printed `repair` invocation that lands on the wrong subject records a captain decision no captain gave, which is the harm the whole ledger exists to prevent.
-So `hold`, `answer`, and `decline` each ask the same scope question the audit asks before they print a `repair` invocation, and an identity outside that scope is refused with one shared text that names no mutating command.
+So `hold`, `answer`, and `decline` each ask the same two questions the audit asks before they print a `repair` invocation, both owned in one place: the scope rule says this ledger owns the identity at all, and the provenance test says `repair` would then act on it rather than refuse.
+An identity that fails either one is refused with a shared text that names no mutating command, because a refusal that suggests a command its own owner refuses is the same contradiction about one identity as naming the wrong subject.
 The refusals themselves are unchanged at every site; only the remediation a lookalike is handed changed.
 
 ## Answer-time closure

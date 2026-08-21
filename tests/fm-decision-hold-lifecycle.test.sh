@@ -806,7 +806,53 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
     "decline stopped naming the remediation for a decision this script created"
   run_decisions "$home" repair "$id" route --decision-file "$home/decision.txt" >/dev/null \
     || fail "the remediation all three printed did not attest the decision they named"
-  pass "no refusal suggests repair for an ordinary captain-gated thread, and every one still does for a real decision"
+
+  # In scope and unattestable: the home recorded this decision, so the ledger
+  # owns it, but an out-of-band write replaced the creation body after an unhold
+  # cleared hold_kind, and `repair` refuses an identity carrying neither signal.
+  # A refusal that names a command its own owner then refuses is the same
+  # contradiction about one identity as naming the wrong subject, so every
+  # surface must reach the verdict `repair` would.
+  run_decisions "$home" hold "$id" shape --title "Choose the sample shape" \
+    --reason "captain shape choice pending" --repo sample >/dev/null \
+    || fail "could not register the shape hold"
+  run_decisions "$home" complete "$id" shape >/dev/null \
+    || fail "completion failed while the shape decision was properly held"
+  tasks_in "$home" unhold "$id-decision-shape" >/dev/null || fail "could not clear the captain hold kind"
+  tasks_in "$home" update "$id-decision-shape" --body "Notes rewritten out of band." >/dev/null \
+    || fail "could not replace the creation body"
+  tasks_in "$home" "done" "$id-decision-shape" >/dev/null || fail "could not close the shape decision"
+
+  if run_decisions "$home" repair "$id" shape --decision-file "$home/decision.txt" \
+    > "$home/unattestable-repair.out" 2> "$home/unattestable-repair.err"; then
+    fail "repair attested an identity carrying neither captain-hold signal"
+  fi
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  assert_contains "$out" "$id-decision-shape was closed outside fm-decision-hold and no longer carries captain-hold provenance" \
+    "the audit stopped naming the decision it can no longer attest"
+  if run_decisions "$home" hold "$id" shape --title "Choose the sample shape" \
+    --reason "captain shape choice pending" --repo sample > "$home/shape-hold.out" 2> "$home/shape-hold.err"; then
+    fail "hold accepted a decision closed with no captain answer"
+  fi
+  assert_no_grep "repair $id shape --decision-file" "$home/shape-hold.err" \
+    "hold named a repair command that repair itself refuses"
+  if run_decisions "$home" answer "$id" shape --decision-file "$home/decision.txt" \
+    > "$home/shape-answer.out" 2> "$home/shape-answer.err"; then
+    fail "answer closed a decision that was already closed outside the script"
+  fi
+  assert_no_grep "repair $id shape --decision-file" "$home/shape-answer.err" \
+    "answer named a repair command that repair itself refuses"
+  assert_grep "no longer carries captain-hold provenance" "$home/shape-answer.err" \
+    "answer gave a different verdict than the audit about one identity"
+  if run_decisions "$home" decline "$id" shape --decision-file "$home/decision.txt" \
+    > "$home/shape-decline.out" 2> "$home/shape-decline.err"; then
+    fail "decline closed a decision that was already closed outside the script"
+  fi
+  assert_no_grep "repair $id shape --decision-file" "$home/shape-decline.err" \
+    "decline named a repair command that repair itself refuses"
+  assert_grep "no longer carries captain-hold provenance" "$home/shape-decline.err" \
+    "decline gave a different verdict than the audit about one identity"
+  pass "no refusal suggests repair for an ordinary captain-gated thread or for one repair would refuse, and every one still does for a real decision"
 }
 
 # Session-start bootstrap, scoped to this fixture home and kept local: the

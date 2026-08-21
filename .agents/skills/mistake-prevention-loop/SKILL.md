@@ -87,6 +87,7 @@ Each of these is a way of appearing to close the loop without closing it.
 - Treating the captain noticing as the correction, rather than as evidence the loop was missing.
 - Shipping a guard whose printed remediation is destructive when its scope is wrong.
 - Fixing the site a finding names when the finding is really about a class, instead of sweeping for the class first.
+- Accepting a behavioural remedy - "I will remember to X", "next time I will check Y" - as the prevention.
 
 The captain-noticing one is the most expensive, because it hides the real defect.
 The captain noticing means detection was absent, so the prevention owed is detection, not an apology and a fixed instance.
@@ -104,6 +105,15 @@ Some defects are a class rather than a place: a remediation gated on the wrong t
 When the defect is one of those, the first fix is the sweep, not the patch, and the anti-pattern is not "we missed a site" but "we fixed a site" - fixing the instance in front of you and moving on leaves the class intact everywhere else, and every remaining site costs another round to find.
 The destructive-remediation defect above is the worked example: it was fixed at the audit in one round, found again at `command_hold` in a later one, and only a deliberate sweep then turned up a third site in `close_unrouted_hold` that predated the branch and whose blast radius the branch had quietly enlarged.
 The check this implies: when a finding names a test, a gate, or a condition used in one place, ask what else uses it before fixing it, and report the sweep result even when it is empty, because "I looked and there is one site" and "I fixed the site I was shown" read identically in a diff and mean opposite things.
+
+The behavioural one is below the bottom of the ladder, not above it.
+An intention is weaker than the recorded rung: a learning at least persists and can be read by the next agent, while "I will remember" can be checked by nobody and decays immediately.
+The worked example is this loop's own validation run, recorded because the evidence is unusually direct.
+The worker deadlocked with its own pipeline - the run sat at a `*_review` state waiting for a response while the worker waited for a gate that had already arrived - then diagnosed the failure correctly, proposed "I will poll to an outcome rather than announcing and going quiet", and broke that remedy inside a single round.
+The agent that had just named the failure and chosen the remedy could not hold it for one round, which is the whole argument.
+The rule that follows: a guard for a class must hold when the worker forgets, because the worker demonstrably will, so "the worker will remember" is never the prevention.
+What does hold is structural - a check at the moment of failure, a refusal, or a mechanism that surfaces the condition without anyone choosing to look.
+That incident also produced the checkable discriminator such a guard would read, worth recording because the obvious signal is the wrong one: a step's elapsed duration can be frozen while the run around it progresses, so duration is not a liveness signal, while the step's status value is - a step sitting at any `*_review` state means the run is waiting for the worker, readable directly with no inference.
 
 A new guard's first version also gets checked against the contracts the repository already enforces, because a guard is new code in an old system and inherits every rule that system already has.
 The same audit's first version wrote to the home's state directory on a detect-only session start, which the repository's own harness test refuses, and it was the second guard that day to break that contract.
