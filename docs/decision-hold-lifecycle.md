@@ -81,7 +81,10 @@ So `hold`, `answer`, and `decline` reach one shared gate before they print a `re
 That gate asks `repair`'s own kind and provenance preconditions, so it never names a command `repair` would refuse, PLUS a suggestion-scope rule `repair` deliberately does not have.
 It therefore answers a narrower question than `repair` does - should this identity be handed a repair command, not would `repair` accept it - and the reasoning for keeping that asymmetry lives beside the gate in `bin/fm-decision-hold.sh`, because that is where someone would be tempted to tidy it away.
 An identity the scope rule declines is refused with a text that states only what the rule tested, and never asserts what `repair` would do with it, because `repair` reads a wider signal and may well accept it.
-An identity that fails any of them is refused with a shared text that names no mutating command, and for a closed identity the kind and lost-provenance refusals are the audit's own sentences verbatim, so one closed identity gets one verdict across those four surfaces.
+An identity that fails any of them is refused with a shared text that never names a `repair` invocation, and for a closed identity the kind and lost-provenance refusals are the audit's own sentences verbatim, so one closed identity gets one verdict across those four surfaces.
+Whether that shared text names any command at all is decided per refusal rather than once, because the three refusals know different amounts.
+The out-of-scope refusal names none, because the scope rule tested nothing that would license one and `repair` may well accept the identity anyway.
+The kind refusal names the `tasks-axi update` that restores the identity, and the lost-provenance refusal names the four-step same-key recovery, because each of those is one command sequence that is correct for every identity its finding fires on and a regression walks it end to end.
 The closed-identity qualifier is load-bearing rather than decoration, because only a closed identity routes through that gate: an identity whose kind drifted while it is still open gets the audit's sentence at session start, and `hold` and `answer` refuse it in each site's own shorter wording instead.
 That kind sentence splits on whether the record still carries a durable resolution block, because an identity that already holds a recorded captain answer must be restored rather than re-raised, and it names the `tasks-axi update` that actually clears the finding under either shape.
 The lost-provenance sentence names the same-key recovery for the same reason: `complete` recorded that key in the origin's inventory and `verify` reads that inventory, so raising the decision again under a fresh key answers the captain's question while stranding the old key, and the finding and the origin's completion gate both keep refusing.
@@ -168,6 +171,7 @@ Lost-provenance remediation verification date: 2026-08-21.
 Routed-close remediation branch and restored verification record date: 2026-08-21.
 Open-state verdict, its recovery guidance, and the re-captured lost-provenance transcript verification date: 2026-08-21.
 Open-state verdict truth across every open shape verification date: 2026-08-21.
+Red-first proof of the open-state regression, and stale-claim sweep, verification date: 2026-08-21.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -196,10 +200,6 @@ A companion regression drives one origin id that spells the decision separator i
 Two further regressions pin what makes the detector survivable in daily use.
 The cost case records every `tasks-axi` invocation the session-start audit makes and proves the count does not change when the home grows from two properly held decisions to six, while a decision closed outside its owner is still named and still re-read from its own record.
 The message case releases a hold and re-holds it for something other than the captain, and proves the printed line never denies the state printed beside it, names the `hold_kind` that makes it a defect, and clears only when the remediation it prints is actually run.
-An eighth pins the open-state fall-through to what a verdict may say, and its subject is deliberately the shape the wording was NOT written against.
-It drives a correctly held decision to `state=in_flight held=yes hold_kind=captain` with the single `tasks-axi start` that `tasks-axi`'s own `ready` and `show` help advertise, keeps a routed task blocked behind it throughout, and proves the line asserts none of the six claims that state falsifies, reports the state, held and hold_kind fields the record actually carries, names none of the eleven mutating invocations the two tools offer here, and points at this document.
-It carries the released shape alongside it and requires the two lines to be the same sentence once the parenthesised field group is stripped, because a verdict that reads differently for two shapes it fires on has been tuned to one of them.
-It also proves the read leaves the record byte-identical and repeats identically, then runs the recovery this document records for `in_flight`, and proves the finding clears, the routed task is still blocked, and the origin passes `verify`, so the guidance is proven followable rather than asserted.
 
 A fourth drives an ordinary captain-gated thread through `hold`, `answer`, and `decline`, proves none of them names a `repair` invocation for it and that its body survives every refusal untouched, and proves all three still name the remediation for a decision this script really created.
 A fifth answers three decisions through their owner, drives real retention by closing eleven unrelated tasks until `.tasks.toml`'s `done_keep` moves them into the archive, and proves the audit and the session start both stay silent about them while `verify` still refuses the absent identity at that origin's teardown.
@@ -209,9 +209,13 @@ A sixth moves a reviewed decision off kind `captain` with `tasks-axi update`, an
 A seventh follows the lost-provenance remediation instead of paraphrasing it: it parses the commands out of the audit's own line, substitutes the placeholders an operator supplies, runs them in the printed order, and proves that the audit then falls silent and the origin passes `verify` again.
 It walks both branches of the printed line, because the last step names `resolve` for a hold that still blocks routed work and `answer` for one that does not, and a remedy is only followable if every branch it names can be completed.
 It executes the printed text rather than the code path behind it, so a remediation that stops being followable fails the test even when every predicate still behaves.
+An eighth pins the open-state fall-through to what a verdict may say, and its subject is deliberately the shape the wording was NOT written against.
+It drives a correctly held decision to `state=in_flight held=yes hold_kind=captain` with the single `tasks-axi start` that `tasks-axi`'s own `ready` and `show` help advertise, keeps a routed task blocked behind it throughout, and proves the line asserts none of the six claims that state falsifies, reports the state, held and hold_kind fields the record actually carries, names none of the eleven mutating invocations the two tools offer here, and points at this document.
+It carries the released shape alongside it and requires the two lines to be the same sentence once the parenthesised field group is stripped, because a verdict that reads differently for two shapes it fires on has been tuned to one of them.
+It also proves the read leaves the record byte-identical and repeats identically, then runs the recovery this document records for `in_flight`, and proves the finding clears, the routed task is still blocked, and the origin passes `verify`, so the guidance is proven followable rather than asserted.
 The sixth, `test_audit_names_a_reviewed_decision_moved_off_kind_captain`, is the one regression that fails if a `--kind captain` filter is ever restored to the audit's listing, which is the only way that detection could be deleted while every other regression stayed green.
 
-### Reproduce, catch, revert, as of 2026-08-20
+### Reproduce, catch, revert, as of 2026-08-21
 
 The transcript recorded in commit `bd041d4` is superseded, not broken.
 It is accurate evidence of what the guard emitted the day it shipped, and one of its lines no longer reproduces because the message was corrected afterwards: the released-hold finding read `is open but no longer actively held (state=queued held=no)`, which denied the state it printed whenever the identity had been re-held for something other than the captain, and it was corrected to `is open but carries no active captain hold (state=queued held=no hold_kind="-")`.
@@ -305,6 +309,23 @@ $ tasks-axi show samp-route-work --full | grep "blocked:"
   blocked: yes
 $ bin/fm-decision-hold.sh verify samp
 verified: samp unresolved-decision inventory
+```
+
+The regression that pins the block above was itself proven the way this document requires a guard to be proven, and the proof is recorded because the previous version of that same test could not fail.
+It was seeded with `state=in_flight held=no hold_kind="-"`, the shape its own fix had been written for, so its assertions about `held=yes` and `hold_kind=captain` asserted nothing.
+The rebuilt test was therefore run against the verdict exactly as commit `7c2ccac` shipped it, before the current wording replaced it, and observed RED; the current code was then restored and it was observed green.
+The suite stops at its first failing case and an earlier case matches the verdict's opening words, so the run below drives the one case in isolation, with the same fixtures the suite builds.
+
+```text
+# the verdict restored to the wording commit 7c2ccac shipped
+$ bash tests/fm-decision-hold-lifecycle.test.sh   # driven to the one case
+not ok - the open-state verdict denied the state it printed beside it (unexpected: 'carries no active captain hold')
+--- output ---
+sample-inflight-review-decision-route is open but carries no active captain hold (state=in_flight held=yes hold_kind=captain), so it is neither actively held nor durably resolved and therefore neither blocks work nor records an answer; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"
+
+# the verdict as it stands now
+$ bash tests/fm-decision-hold-lifecycle.test.sh   # driven to the one case
+ok - the audit's open-state verdict is true of every open shape, names no command, and changes nothing
 ```
 
 The same cycle for the suggestion scope, on the nearest legitimate lookalike: the captain-gated thread `AGENTS.md` section 10 prescribes, whose id merely spells the decision separator.

@@ -1182,8 +1182,8 @@ detect_local_tools() {
 # outside their owner. Until now the only enforcement point was one origin's own
 # scout teardown, so a home that never tore that origin down was wrong and did not
 # know. bin/fm-decision-hold.sh's `audit` owns what a valid hold state is and
-# writes each remediation; this only prefixes its findings, so the two surfaces
-# cannot drift apart. The compatibility verdict is handed down so the child does
+# decides whether a finding carries a remediation at all; this only prefixes its
+# findings, so the two surfaces cannot drift apart. The compatibility verdict is handed down so the child does
 # not re-probe tasks-axi, and an unusable tasks-axi stays silent here because it
 # already has its own MISSING line.
 detect_decision_holds() {

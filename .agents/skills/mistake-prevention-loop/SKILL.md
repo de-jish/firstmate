@@ -44,6 +44,9 @@ Another project's bug, a vendor defect, and an external outage are not triggers 
    Reproduce the original mistake against the guard, observe the refusal or detection, then revert the reproduction.
    A guard that has not been shown to catch the thing it was written for is not a guard.
    The reproduction must be the original failure, not the guard's own code path.
+   Write the test from the ORIGINAL FAILURE, never from the fix, and prove it by observing it RED against the pre-fix code before believing it.
+   The observation is the load-bearing half rather than a formality: the anti-pattern below about a test that asserts the guard's own code path was already written down here, and was then committed one round later by the agent who wrote it, in the very test added to enforce the neighbouring rule.
+   That agent seeded the case its own fix already handled, saw green, and shipped a regression that could not fail; a rule stated but never mechanically checked documents its own future violation, and running it red is the check.
 4. **Record the evidence** where `firstmate-coding-guidelines` says maintainer verification belongs, with the date, the exact commands, and the exact output that supports the current guarantee.
 5. **Prefer strengthening an existing owner** over adding a new surface, per that skill's one-owner rule.
    A defect a current owner is already closest to belongs to that owner, extended; a second surface that partially restates it will drift.

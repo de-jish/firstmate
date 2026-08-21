@@ -49,8 +49,11 @@
 # about one identity. `hold` reads that same signal before refusing to reuse a
 # closed identity, so a hold closed without its resolution record is named as
 # exactly that rather than reported as already resolved.
-# `audit` is a detector and not a gate: it prints one remediation line per defect,
-# always exits 0, and prints nothing at all when tasks-axi cannot be read, because
+# `audit` is a detector and not a gate: a finding names a remediation only where
+# one command is correct for every state that finding fires on and a regression
+# walks it, and otherwise names the state it read and points at
+# docs/decision-hold-lifecycle.md, which owns the per-state recovery in one place.
+# It always exits 0, and prints nothing at all when tasks-axi cannot be read, because
 # bin/fm-bootstrap.sh reports an unusable tasks-axi on its own line and prefixes
 # each of these findings as a session-start DECISION_HOLD line.
 # It judges exactly what the backlog still holds, and it says NOTHING about an
