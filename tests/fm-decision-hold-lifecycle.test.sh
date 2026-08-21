@@ -734,7 +734,7 @@ test_out_of_band_close_is_repairable_before_teardown() {
 # proves its body survives untouched, and proves a genuine decision closed out of
 # band still gets its remediation from each of the same three.
 test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
-  local home lookalike id show surface drifted
+  local home lookalike id show surface drifted outside out
   home=$(make_home repair-suggestion-scope)
   lookalike=capt-decision-ui-q2
   printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
@@ -752,7 +752,7 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
   fi
   assert_no_grep "repair" "$home/hold.err" \
     "hold handed the agent a command that would record a captain decision on an unrelated thread"
-  assert_grep "ordinary captain-gated backlog item" "$home/hold.err" \
+  assert_grep "not an identity this ledger owns as a captain decision" "$home/hold.err" \
     "hold refused without saying what the identity actually is"
   if run_decisions "$home" answer capt ui-q2 --decision-file "$home/decision.txt" \
     > "$home/answer.out" 2> "$home/answer.err"; then
@@ -889,6 +889,13 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
     > "$drifted/size-repair.out" 2> "$drifted/size-repair.err"; then
     fail "repair attested an identity that is no longer kind captain"
   fi
+  if run_decisions "$drifted" hold "$id" size --title "Choose the sample size" \
+    --reason "captain size choice pending" --repo sample \
+    > "$drifted/size-hold.out" 2> "$drifted/size-hold.err"; then
+    fail "hold accepted a decision that is no longer kind captain"
+  fi
+  assert_grep "but is kind ship" "$drifted/size-hold.err" \
+    "hold gave a different verdict than every other surface about one identity"
   for surface in answer decline; do
     if run_decisions "$drifted" "$surface" "$id" size --decision-file "$drifted/decision.txt" \
       > "$drifted/size-$surface.out" 2> "$drifted/size-$surface.err"; then
@@ -913,6 +920,48 @@ test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
     assert_grep "but is kind ship" "$drifted/depth-$surface.err" \
       "$surface did not name the kind that makes this a defect"
   done
+
+  # Out of scope but attestable: `hold` created this identity, an out-of-band
+  # write replaced the creation body, and no `complete` ran, so the ledger has no
+  # record of it as a decision it owns. The refusal must say only that, because
+  # `repair` reads a wider signal and does accept this identity - a refusal that
+  # claimed the script never created it, or that no decision can be recorded on
+  # it, would be false about a subject the caller can check in one command.
+  outside=$(make_home repair-suggestion-outside)
+  printf 'Captain chose the northern sample route.\n' > "$outside/decision.txt"
+  mkdir -p "$outside/data/$id"
+  tasks_in "$outside" add "$id" "Investigate the sample scope" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the out-of-scope origin"
+  write_origin_meta "$outside" "$id"
+  printf 'done: report complete\n' > "$outside/state/$id.status"
+  printf '# Sample scope review\n\nOne captain choice remains.\n' > "$outside/data/$id/report.md"
+  run_decisions "$outside" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "could not register the route hold"
+  tasks_in "$outside" update "$id-decision-route" --body "Notes rewritten out of band." >/dev/null \
+    || fail "could not replace the creation body"
+  tasks_in "$outside" "done" "$id-decision-route" >/dev/null || fail "could not close the route decision"
+
+  if run_decisions "$outside" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample \
+    > "$outside/hold.out" 2> "$outside/hold.err"; then
+    fail "hold accepted a decision closed with no captain answer"
+  fi
+  if run_decisions "$outside" answer "$id" route --decision-file "$outside/decision.txt" \
+    > "$outside/answer.out" 2> "$outside/answer.err"; then
+    fail "answer closed a decision that was already closed outside the script"
+  fi
+  for surface in hold answer; do
+    assert_no_grep "rather than a captain decision hold this script created" "$outside/$surface.err" \
+      "$surface told the caller this script never created an identity hold created"
+    assert_no_grep "no captain decision can be recorded on it" "$outside/$surface.err" \
+      "$surface said no captain decision can be recorded while repair accepts this identity"
+    assert_grep "not an identity this ledger owns as a captain decision" "$outside/$surface.err" \
+      "$surface refused without saying what the ledger actually found"
+  done
+  out=$(run_decisions "$outside" repair "$id" route --decision-file "$outside/decision.txt") \
+    || fail "repair refused an identity it accepts, so this case reproduces nothing"
+  assert_contains "$out" "repaired: $id-decision-route" "repair attested a different identity"
   pass "no refusal suggests repair for an ordinary captain-gated thread or for one repair would refuse, and every one still does for a real decision"
 }
 

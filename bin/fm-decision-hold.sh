@@ -535,25 +535,32 @@ decision_hold_in_scope() {  # <show-output> <origin-id> <decision-key>
 
 # The refusal every surface gives for an identity outside that rule. One text and
 # one owner, so two surfaces cannot describe the same identity differently, and
-# none of them names a command that would write to it.
+# none of them names a command that would write to it. It states the two things
+# the scope rule actually tested and nothing beyond them: it does not say this
+# script never created the identity, and it does not say no captain decision can
+# ever be recorded on it, because `repair` reads a wider signal and may well
+# accept an identity this rule declines to hand a command to.
 refuse_outside_decision_scope() {  # <hold-id>
-  fail "backlog item $1 is an ordinary captain-gated backlog item rather than a captain decision hold this script created, so no captain decision can be recorded on it; raise the decision again under a new decision key"
+  fail "backlog item $1 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record no longer carries the creation body hold writes, so this command offers no remediation for it"
 }
 
 # The whole refusal for an identity that is closed with no resolution record,
 # owned here so every gate that meets that state gives one verdict about one
-# identity. Naming `repair` is correct only when this gate can answer the whole
-# of "would `repair` accept this identity", so it asks every precondition
-# command_repair asks, in the order command_repair asks them: the scope rule
-# above says this ledger owns the identity at all, kind says the item can hold a
-# captain decision, and captain_hold_provenance says `repair` would then act on
-# it rather than refuse. Asking two thirds of that question is how a gate ends up
-# naming a command its own owner refuses, which is the same contradiction about
-# one identity this script exists to remove. No caller carries its own copy of
-# any clause; a caller that has already refused for one of these reasons simply
-# never reaches here. `audit` reads the same predicates in the detector's
-# register, and the kind verdict below is its wording exactly, so one identity
-# gets one sentence whichever surface a reader meets first.
+# identity. No caller carries its own copy of a clause about a CLOSED identity;
+# every one of them routes here, and `audit` prints the same verdicts in the
+# detector's register, so one identity gets one sentence whichever surface a
+# reader meets first.
+#
+# THIS GATE IS DELIBERATELY NARROWER THAN `repair`, AND THE ASYMMETRY MUST STAY.
+# It answers "should this identity be handed a repair command", not "would repair
+# accept it": `command_repair` never asks the scope rule, and unifying the two
+# would re-open the destructive suggestion, because an ordinary captain-gated
+# thread held with `tasks-axi hold --kind captain` passes provenance and would be
+# handed a command that fabricates a resolution record on work no captain ever
+# decided. So the clauses below are repair's kind and provenance preconditions
+# PLUS a suggestion-scope rule repair does not have, and an identity the scope
+# rule declines is refused without a remediation rather than told anything about
+# what `repair` would do with it.
 # This never returns; every branch exits through fail.
 refuse_out_of_band_close() {  # <show-output> <hold-id> <origin-id> <decision-key>
   local show=$1 id=$2 origin=$3 key=$4 kind
@@ -591,19 +598,21 @@ command_hold() {
     state=$(show_field "$show" state)
     kind=$(show_field "$show" kind)
     existing_title=$(show_field "$show" title)
-    [ "$kind" = captain ] || fail "existing backlog identity $id is not kind captain"
     # A closed identity is "already resolved" only on the signal verify reads.
     # Reading state alone once let this command call a hold closed outside its
     # owner durably resolved while verify called the same identity neither held
     # nor resolved, and that contradiction is what made the wrong close look
-    # finished. Both refusals stand; only the diagnosis is now true.
+    # finished. Both refusals stand; only the diagnosis is now true. A closed
+    # identity's kind is the gate's clause to state, not this command's, so the
+    # kind test below covers only an identity that is still open.
     if [ "$state" = "done" ]; then
       body=$(show_field "$show" body)
-      if body_has_resolution_record "$body"; then
+      if [ "$kind" = captain ] && body_has_resolution_record "$body"; then
         fail "captain decision $id is already durably resolved; use a new decision key for a new decision"
       fi
       refuse_out_of_band_close "$show" "$id" "$origin" "$key"
     fi
+    [ "$kind" = captain ] || fail "existing backlog identity $id is not kind captain"
     [ "$existing_title" = "$title" ] || fail "existing captain hold $id has a different title"
   else
     if [ -z "$repo" ] && [ -f "$STATE/$origin.meta" ]; then

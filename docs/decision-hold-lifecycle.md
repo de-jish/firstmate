@@ -74,8 +74,10 @@ Because a successful repair replaces that creation body, the already-repaired re
 
 `hold_kind` is enough for `repair` to act on an identity the caller named itself, and it is never enough for another command to name that identity to the caller.
 Acting and suggesting are different questions because a suggestion is followed: a printed `repair` invocation that lands on the wrong subject records a captain decision no captain gave, which is the harm the whole ledger exists to prevent.
-So `hold`, `answer`, and `decline` reach one shared gate before they print a `repair` invocation, and that gate asks every precondition `repair` itself asks, in `repair`'s own order: the scope rule says this ledger owns the identity at all, the kind says the item can hold a captain decision, and the provenance test says `repair` would then act on it rather than refuse.
-Asking a subset is how a gate ends up naming a command its own owner refuses, so no caller carries its own copy of any clause.
+So `hold`, `answer`, and `decline` reach one shared gate before they print a `repair` invocation, and no caller carries its own copy of a clause about a closed identity.
+That gate asks `repair`'s own kind and provenance preconditions, so it never names a command `repair` would refuse, PLUS a suggestion-scope rule `repair` deliberately does not have.
+It therefore answers a narrower question than `repair` does - should this identity be handed a repair command, not would `repair` accept it - and the reasoning for keeping that asymmetry lives beside the gate in `bin/fm-decision-hold.sh`, because that is where someone would be tempted to tidy it away.
+An identity the scope rule declines is refused with a text that states only what the rule tested, and never asserts what `repair` would do with it, because `repair` reads a wider signal and may well accept it.
 An identity that fails any of them is refused with a shared text that names no mutating command, and the kind refusal is the audit's own sentence verbatim, so one identity gets one verdict whichever surface a reader meets first.
 The refusals themselves are unchanged at every site; only the remediation a lookalike is handed changed.
 
@@ -133,6 +135,7 @@ Remediation-suggestion scope verification date: 2026-08-20.
 Archived-resolution silence verification date: 2026-08-20.
 Kind-drift detection verification date: 2026-08-20.
 Repair-suggestion gate completeness verification date: 2026-08-20.
+Out-of-scope refusal wording and hold routing verification date: 2026-08-20.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -164,7 +167,8 @@ The message case releases a hold and re-holds it for something other than the ca
 
 A fourth drives an ordinary captain-gated thread through `hold`, `answer`, and `decline`, proves none of them names a `repair` invocation for it and that its body survives every refusal untouched, and proves all three still name the remediation for a decision this script really created.
 A fifth answers three decisions through their owner, drives real retention by closing eleven unrelated tasks until `.tasks.toml`'s `done_keep` moves them into the archive, and proves the audit and the session start both stay silent about them while `verify` still refuses the absent identity at that origin's teardown.
-The fourth also covers both ways an identity drifts off kind `captain` - closed out of band and then moved, and answered through its owner and then moved - and proves `answer` and `decline` name no `repair` command for either and never claim a recorded decision is unrecorded.
+The fourth also covers both ways an identity drifts off kind `captain` - closed out of band and then moved, and answered through its owner and then moved - and proves `hold`, `answer`, and `decline` name no `repair` command for either, give the audit's own sentence, and never claim a recorded decision is unrecorded.
+It closes with the identity the scope rule declines but `repair` accepts, and proves the refusal states only what the rule tested while `repair` still attests it, so no surface asserts something a reader can disprove in one command.
 A sixth moves a reviewed decision off kind `captain` with `tasks-axi update`, and proves the audit and the session start both name it and that the finding clears when the kind is restored.
 That case is the one regression that fails if a `--kind captain` filter is ever restored to the audit's listing, which is the only way that detection could be deleted while every other regression stayed green.
 
@@ -224,13 +228,13 @@ $ tasks-axi hold capt-decision-ui-q2 --reason "captain UI choice pending" --kind
 $ tasks-axi done capt-decision-ui-q2
 
 $ bin/fm-decision-hold.sh hold capt ui-q2 --title ... --reason ...
-fm-decision-hold: backlog item capt-decision-ui-q2 is an ordinary captain-gated backlog item rather than a captain decision hold this script created, so no captain decision can be recorded on it; raise the decision again under a new decision key
+fm-decision-hold: backlog item capt-decision-ui-q2 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record no longer carries the creation body hold writes, so this command offers no remediation for it
 [exit 1]
 $ bin/fm-decision-hold.sh answer capt ui-q2 --decision-file d.txt
-fm-decision-hold: backlog item capt-decision-ui-q2 is an ordinary captain-gated backlog item rather than a captain decision hold this script created, so no captain decision can be recorded on it; raise the decision again under a new decision key
+fm-decision-hold: backlog item capt-decision-ui-q2 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record no longer carries the creation body hold writes, so this command offers no remediation for it
 [exit 1]
 $ bin/fm-decision-hold.sh decline capt ui-q2 --decision-file d.txt
-fm-decision-hold: backlog item capt-decision-ui-q2 is an ordinary captain-gated backlog item rather than a captain decision hold this script created, so no captain decision can be recorded on it; raise the decision again under a new decision key
+fm-decision-hold: backlog item capt-decision-ui-q2 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record no longer carries the creation body hold writes, so this command offers no remediation for it
 [exit 1]
 $ bin/fm-decision-hold.sh audit
 (no output)
@@ -251,6 +255,9 @@ $ tasks-axi show samp-decision-route --full | grep -c "Resolution recorded by fm
 1
 $ bin/fm-decision-hold.sh audit
 samp-decision-route carries a reviewed captain decision identity but is kind ship, so it cannot hold a captain decision; give that work its own identity
+$ bin/fm-decision-hold.sh hold samp route --title ... --reason ...
+fm-decision-hold: samp-decision-route carries a reviewed captain decision identity but is kind ship, so it cannot hold a captain decision; give that work its own identity
+[exit 1]
 $ bin/fm-decision-hold.sh answer samp route --decision-file a.txt
 fm-decision-hold: samp-decision-route carries a reviewed captain decision identity but is kind ship, so it cannot hold a captain decision; give that work its own identity
 [exit 1]
