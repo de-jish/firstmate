@@ -182,10 +182,11 @@ When a requested effort value is outside the harness-specific accepted set, `fm-
 This preserves launch success instead of passing a known-bad value.
 For Cursor, select the intended reasoning class through a model id the account's own `--list-models` actually returns, and leave the separate effort axis unset.
 
-## no-mistakes skill invocation
+## Skill invocation
 
-Send the validation skill using the target harness's skill invocation form.
+When firstmate sends a skill into a worker's pane, use the target harness's skill invocation form.
 Natural language is acceptable if uncertain.
+This table records only that sent form: a no-mistakes ship worker starts validation itself, straight from its own implementation commit, invoking the skill the way its own harness invokes skills, so no firstmate-sent validation trigger exists to look up here (AGENTS.md section 7 owns that handoff).
 
 - claude: `/<skill>`, for example `/no-mistakes`.
 - codex: `$<skill>`, for example `$no-mistakes`; `/<skill>` is claude-only and codex rejects it as "Unrecognized command".
@@ -244,7 +245,7 @@ A `$<skill>` invocation opens a `$`-autocomplete (skill) popup, the same hazard 
 `fm-send` handles it the same way it handles `/` - it gives the popup a longer settle (1.2s) between typing and the first Enter, with the target backend's submit retry as the safety net - but the `$` settle is scoped to `harness=codex`, read from the target metadata for exact task ids or legacy `fm-<id>` labels.
 That scope matters because, unlike `/`, a leading `$` commonly starts ordinary text (`$5/month`, `$HOME`), so a universal `$` rule would needlessly slow plain steers to claude/opencode/pi; only a codex target receiving a `$...` message gets the popup-settle.
 An explicit `session:window` target has no meta, so its harness is unknown and treated as non-codex (the safe fast-path default).
-This is why the validation trigger (`$no-mistakes`) to a codex crew now lands on the first Enter instead of biting the popup.
+This is why a `$<skill>` invocation sent to a codex crew now lands on the first Enter instead of biting the popup.
 
 Directory trust dialog on first run per repo root: "Do you trust the contents of this directory?"
 Accept with Enter.

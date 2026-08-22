@@ -22,6 +22,104 @@ TMP_ROOT=$(fm_test_tmproot fm-brief)
 BRIEF_HOME="$TMP_ROOT/home"
 mkdir -p "$BRIEF_HOME/data"
 
+# --- generated delivery-contract helpers ------------------------------------
+#
+# The brief is generated output that firstmate hands verbatim to a worker, so
+# its `# Definition of done` section is an owned text contract and asserting on
+# it is asserting on the interface. These helpers assert that contract's
+# *structure* rather than any historical sentence, so the wording stays free to
+# change while a second, earlier completion signal cannot come back reworded
+# (the failure mode that let issue #945's defect class return).
+#
+# The DOD is the last section of every ship brief.
+brief_dod_section() {
+  awk 'f { print } /^# Definition of done$/ { f = 1 }' "$1"
+}
+
+# strip_done_payloads reads stdin and blanks every `done: ...` span.
+#
+# The payload names the terminal artifact ("PR {url}"), so a sentence that
+# merely quotes it would otherwise satisfy any check for that artifact. Every
+# assertion below therefore reads the payload-free remainder of a line: what the
+# DOD says the worker must have REACHED, never what it tells it to type.
+strip_done_payloads() {
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  sed 's/`done: [^`]*`//g'
+}
+
+# Any directive that ends the worker's turn, however it is phrased. The brief's
+# own Rules section already says "do not end the turn after it", so an early exit
+# can be worded as an end-of-turn just as easily as a stop; both must be seen.
+TURN_ENDING_DIRECTIVE='(^|[^[:alnum:]-])(stop|halt)([^[:alnum:]-]|$)|end (your|the) turn|(finish|conclude) (here|your turn)'
+
+# assert_single_completion_contract <brief> <done-payload> <terminal-regex> <label>
+#
+# One terminal event per mode. The DOD must carry exactly one `done:` payload,
+# exactly one "the task is complete" bar that names the mode's terminal event,
+# and exactly one terminal stop directive that also names it. Any stop that is
+# not an escalation must be that terminal one, so a "commit, report, and stop"
+# instruction cannot come back under any wording - including one that quotes the
+# terminal payload at a point the worker cannot yet have earned it.
+assert_single_completion_contract() {
+  local brief="$1" payload="$2" terminal="$3" label="$4"
+  local dod payloads payload_count bars bar_count line bare terminal_stops
+
+  dod=$(brief_dod_section "$brief")
+  [ -n "$dod" ] || fail "$label: brief has no Definition of done section"
+
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  payloads=$(printf '%s\n' "$dod" | grep -o '`done: [^`]*`' | sort -u)
+  payload_count=$(printf '%s\n' "$payloads" | grep -c . || true)
+  [ "$payload_count" -eq 1 ] \
+    || fail "$label: DOD must define exactly one done signal, found $payload_count: $(printf '%s' "$payloads" | tr '\n' ' ')"
+  [ "$payloads" = "\`done: $payload\`" ] \
+    || fail "$label: DOD's done signal must be \`done: $payload\`, found $payloads"
+
+  bars=$(printf '%s\n' "$dod" | grep -iE 'the task is (complete|done)' || true)
+  bar_count=$(printf '%s\n' "$bars" | grep -c . || true)
+  [ "$bar_count" -eq 1 ] \
+    || fail "$label: DOD must state exactly one completion bar, found $bar_count: $bars"
+  printf '%s\n' "$bars" | strip_done_payloads | grep -qiE "$terminal" \
+    || fail "$label: completion bar must be reached at $payload, not earlier: $bars"
+
+  terminal_stops=0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    bare=$(printf '%s\n' "$line" | strip_done_payloads)
+    if printf '%s\n' "$bare" | grep -qiE 'escalat|needs-decision|blocked'; then
+      # An escalation stop is legitimate (rule 6), but only as an escalation:
+      # it may never double as the completion signal for the commit.
+      if printf '%s\n' "$bare" | grep -qi 'commit'; then
+        fail "$label: an escalation stop doubles as a stop at the commit: $line"
+      fi
+      continue
+    fi
+    printf '%s\n' "$bare" | grep -qiE "$terminal" \
+      || fail "$label: a stop directive ends the task before $payload: $line"
+    terminal_stops=$((terminal_stops + 1))
+  done <<STOPS
+$(printf '%s\n' "$dod" | grep -iE "$TURN_ENDING_DIRECTIVE" || true)
+STOPS
+  [ "$terminal_stops" -eq 1 ] \
+    || fail "$label: DOD must carry exactly one terminal stop directive, found $terminal_stops"
+}
+
+# assert_no_harness_specific_skill_form <brief> <label>
+#
+# fm-spawn hands this same brief text to every supported harness, and
+# harnesses differ in how a skill is invoked (`.agents/skills/harness-adapters/SKILL.md`
+# records that claude takes `/<skill>` while codex rejects that form and needs
+# `$<skill>`). A brief that names one harness's form hands every other harness an
+# instruction its TUI refuses, so the DOD must name none of them - including
+# inside backticks or quotes, which is how this DOD writes every other command.
+assert_no_harness_specific_skill_form() {
+  local brief="$1" label="$2" forms
+  forms=$(brief_dod_section "$brief" \
+    | grep -Eo '(^|[^-[:alnum:]_])[/$]no-mistakes([^-[:alnum:]]|$)' || true)
+  [ -z "$forms" ] \
+    || fail "$label: DOD hard-codes a harness-specific skill invocation form:$forms"
+}
+
 # The script itself must always parse under the ambient bash. That is Bash 5 in
 # CI and locally, where the issue #958/#1069 parser bug does not fire, so this
 # is a weak guard on its own; test_no_heredoc_in_command_substitution and the
@@ -256,8 +354,8 @@ test_ship_mode_is_explicit_not_registry() {
   brief="$home/data/brief-explicit-a5/brief.md"
   grep -qx "Delivery contract: mode=no-mistakes" "$brief" \
     || fail "registered direct-PR posture overrode the explicit --mode"
-  assert_grep "Firstmate will then instruct you to run /no-mistakes" "$brief" \
-    "explicit no-mistakes brief did not render the pipeline definition of done"
+  assert_single_completion_contract "$brief" "PR {url} checks green" 'ci green' \
+    "explicit no-mistakes brief did not render the continuous pipeline handoff"
 
   # An unregistered project is not a blocker either, because nothing is looked up.
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-explicit-a6 never-registered --mode local-only >/dev/null 2>&1 \
@@ -319,16 +417,62 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
   pass "fm-brief.sh: faster paths use configured authority without stacked review"
 }
 
+# Sweep every delivery mode for the same contradiction class: a mode may state
+# exactly one completion bar and one `done:` signal, and they must be the same
+# terminal event. no-mistakes completes at a green-checks PR and direct-PR at an
+# open PR, so neither may treat the implementation commit as completion;
+# local-only's terminal event genuinely IS that commit (its done signal is the
+# ready branch), so it is coherent as written and stays unchanged.
+test_delivery_contract_is_single_and_terminal_per_mode() {
+  local home id brief mode payload artifact
+  home="$TMP_ROOT/delivery-contract-home"
+  mkdir -p "$home/data"
+  while IFS='|' read -r mode payload artifact; do
+    [ -n "$mode" ] || continue
+    id="brief-contract-${mode}"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1 \
+      || fail "$mode brief did not scaffold"
+    brief="$home/data/$id/brief.md"
+    assert_present "$brief" "$mode brief was not scaffolded"
+    assert_single_completion_contract "$brief" "$payload" "$artifact" "$mode DOD"
+    assert_no_harness_specific_skill_form "$brief" "$mode DOD"
+  done <<ROWS
+no-mistakes|PR {url} checks green|green
+direct-PR|PR {url}|\bpr\b
+local-only|ready in branch fm/brief-contract-local-only|commit
+ROWS
+  pass "fm-brief.sh: each delivery mode states one completion bar at its own terminal event"
+}
+
 # Pin the specific line the bug lived on: the no-mistakes DOD's no-mistakes
 # reference must render as plain prose with no dangling apostrophe artifact.
 test_no_mistakes_dod_wording() {
-  local home id brief
+  local home id brief handoff continuation
   home="$TMP_ROOT/wording-home"
   mkdir -p "$home/data"
   id="brief-wording-b1"
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_present "$brief" "brief was not scaffolded"
+  # Regression for the handoff contradiction that stopped ship workers at their
+  # implementation commit: the premature commit-completion bar, the generic
+  # `done: {summary}` stop, and the wait-for-firstmate steer cannot coexist with
+  # the green-PR completion bar, however any of them is reworded.
+  assert_single_completion_contract "$brief" "PR {url} checks green" 'green' \
+    "no-mistakes DOD"
+  handoff=$(brief_dod_section "$brief" | grep -iE 'firstmate [a-z]+ (then )?(instruct|tell|steer|trigger|start|run|invoke)' || true)
+  [ -z "$handoff" ] \
+    || fail "no-mistakes DOD hands the validation start back to firstmate: $handoff"
+  # The commit must hand off to validation in the same breath: a line that names
+  # the commit, sends the worker onward from it, and ends no turn there. The
+  # unrelated `--intent` sentence names no commit, so it cannot stand in for one.
+  continuation=$(brief_dod_section "$brief" \
+    | grep -i 'commit' \
+    | grep -iE '\b(proceed|continue|carry on|keep going|go|move|start|begin)\b[^.]*(no-mistakes|validation|the run)' \
+    | grep -ivE "$TURN_ENDING_DIRECTIVE" || true)
+  [ -n "$continuation" ] \
+    || fail "no-mistakes DOD never sends the worker from its own commit straight into validation"
+  assert_no_harness_specific_skill_form "$brief" "no-mistakes DOD"
   assert_grep "no-mistakes itself provides for the mechanics" "$brief" \
     "no-mistakes DOD lost its guidance-reference sentence"
   # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
@@ -720,6 +864,7 @@ test_ship_mode_is_required_and_closed_set
 test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
 test_faster_paths_use_configured_authority_without_stacked_review
+test_delivery_contract_is_single_and_terminal_per_mode
 test_no_mistakes_dod_wording
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
