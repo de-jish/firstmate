@@ -256,8 +256,8 @@ test_ship_mode_is_explicit_not_registry() {
   brief="$home/data/brief-explicit-a5/brief.md"
   grep -qx "Delivery contract: mode=no-mistakes" "$brief" \
     || fail "registered direct-PR posture overrode the explicit --mode"
-  assert_grep "Firstmate will then instruct you to run /no-mistakes" "$brief" \
-    "explicit no-mistakes brief did not render the pipeline definition of done"
+  assert_grep "proceed directly into /no-mistakes validation without stopping or waiting for a firstmate steer" "$brief" \
+    "explicit no-mistakes brief did not render the continuous pipeline handoff"
 
   # An unregistered project is not a blocker either, because nothing is looked up.
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-explicit-a6 never-registered --mode local-only >/dev/null 2>&1 \
@@ -329,6 +329,14 @@ test_no_mistakes_dod_wording() {
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_present "$brief" "brief was not scaffolded"
+  assert_no_grep "The task is complete only when committed on your branch" "$brief" \
+    "no-mistakes DOD still tells the worker that its implementation commit completes the task"
+  assert_no_grep 'When you believe it is complete, append `done: {summary}` to the status file and stop.' "$brief" \
+    "no-mistakes DOD still emits the premature generic done signal above its green-PR done signal"
+  assert_no_grep "Firstmate will then instruct you to run /no-mistakes" "$brief" \
+    "no-mistakes DOD still stops the worker at the commit to await a firstmate steer"
+  assert_grep "The task is complete only after /no-mistakes reports CI green and you can report \`done: PR {url} checks green\`." "$brief" \
+    "no-mistakes DOD must make the PR-with-green-checks signal its completion bar"
   assert_grep "no-mistakes itself provides for the mechanics" "$brief" \
     "no-mistakes DOD lost its guidance-reference sentence"
   # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
