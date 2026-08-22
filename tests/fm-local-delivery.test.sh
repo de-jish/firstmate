@@ -183,7 +183,7 @@ printf '%s\n' sent > "$FM_TEST_SEND_LOG"
 SH
   chmod +x "$fake_root/bin/fm-send.sh"
 
-  out=$(NO_MISTAKES_GATE=1 FM_GATE_REFUSE_BYPASS= FM_ROOT_OVERRIDE="$fake_root" \
+  out=$(NO_MISTAKES_GATE=1 FM_GATE_REFUSE_BYPASS='' FM_ROOT_OVERRIDE="$fake_root" \
     FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_TEST_SEND_LOG="$send_log" \
     "$TASK_MODE" "$id" local-only 2>&1)
   status=$?
