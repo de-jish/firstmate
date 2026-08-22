@@ -1,0 +1,23 @@
+tests/fm-local-delivery.test.sh - each test run against the pre-fix base (575b1e8) and the fix (9505903)
+The base tree has no --push flag and no bin/fm-task-mode.sh, so the new behavior is absent there.
+
+TEST (test_ prefix stripped)                             PRE-FIX      POST-FIX
+-------------------------------------------------------- ------------ --------
+push_landing_updates_remote_and_warns_before_mutation    RED          GREEN
+    pre-fix failure: the successful push landing did not update remote main
+plain_landing_preserves_the_no_push_default              RED          GREEN
+    pre-fix failure: the default path did not announce its local-only mutation (missing: 'ABOUT TO: fast-forward local main from fm/local-main-b2; 
+push_without_an_origin_refuses_before_touching_local_mai RED          GREEN
+    pre-fix failure: --push succeeded on a project with no origin remote
+rejected_push_reports_the_partial_landing_without_rewrit RED          GREEN
+    pre-fix failure: a rejected direct push was reported as a successful landing
+branch_behind_main_is_refused_with_additive_recovery     RED          GREEN
+    pre-fix failure: the refusal did not name the deterministic additive recovery (missing: 'fetch origin and merge origin/main into fm/behind-main
+live_mode_change_records_and_notifies                    RED          GREEN
+    pre-fix failure: live delivery-mode change: expected exit 0, got 127
+gate_agent_cannot_change_a_live_mode                     RED          GREEN
+    pre-fix failure: gate-agent live delivery-mode change: expected exit 3, got 127
+
+Behind-main case: on the base this is RED only on the NEW additive-recovery assertion.
+The refusal itself was already enforced there (exit 1, remote main unchanged); the base
+just printed the old 'rebase fm/<id> onto main' advice. The refusal itself is never red.

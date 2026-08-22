@@ -1,0 +1,158 @@
+
+════════════════════════════════════════════════════════════════
+SCENE 1 - the generated local-only ship brief the worker actually receives
+════════════════════════════════════════════════════════════════
+$ bin/fm-brief.sh demo-local-a1 acme --mode local-only
+--- generated brief: Definition of done ------------------------------
+# Definition of done
+Delivery contract: mode=local-only
+This task ships **local-only**: no remote, no PR, no pipeline.
+The task is complete only when committed on your branch `fm/demo-local-a1`. Do NOT push, do NOT open a PR, do NOT merge.
+Keep your branch a clean fast-forward onto the current default branch.
+If the default branch advances, fetch origin and merge its default branch into `fm/demo-local-a1` additively, never rebase or force, then re-run validation before reporting ready again.
+When it is implemented and committed, append `done: ready in branch fm/demo-local-a1` to the status file and stop.
+The configured merge authority approves the ready branch, then firstmate lands it through the guarded fast-forward path and may explicitly push the default branch without a PR.
+--- generated brief: worker rule 1 -----------------------------------
+21:1. Never push to any remote and never open a PR. Work only on your `fm/demo-local-a1` branch; firstmate handles the approved default-branch landing.
+
+════════════════════════════════════════════════════════════════
+SCENE 2 - default landing: local fast-forward, NO remote mutation
+════════════════════════════════════════════════════════════════
+origin/main before: 491d5f1   local main before: 491d5f1
+
+$ bin/fm-merge-local.sh land-b1
+ABOUT TO: fast-forward local main from fm/land-b1; no remote will be changed
+landed fm/land-b1 on local main (491d5f1 -> 4f9a232) in /tmp/fm-e2e-demo.work/plain/project
+origin/main after : 491d5f1   local main after : 4f9a232
+=> remote untouched: YES
+
+════════════════════════════════════════════════════════════════
+SCENE 3 - opt-in --push: 'skip the PR, land it on main, I'll verify it myself'
+════════════════════════════════════════════════════════════════
+origin/main before: b6e6fa2
+
+$ bin/fm-merge-local.sh land-c1 --push
+CHECKING: fetch origin/main before any local or remote landing
+From file:///tmp/fm-e2e-demo.work/push/origin
+ * branch            main       -> FETCH_HEAD
+ABOUT TO: fast-forward local main from fm/land-c1 and push main to origin
+SKIPPING: pull-request-only checks will not run; use this direct-main path only with the approved validation evidence
+To file:///tmp/fm-e2e-demo.work/push/origin.git
+   b6e6fa2..861d4e6  main -> main
+landed fm/land-c1 on local and origin/main (b6e6fa2 -> 861d4e6) in /tmp/fm-e2e-demo.work/push/project
+origin/main after : 861d4e6  (= fm/land-c1 861d4e6)
+no PR was opened; landing is direct on the default branch
+
+════════════════════════════════════════════════════════════════
+SCENE 4 - main advanced on origin: strict refusal + additive remediation
+════════════════════════════════════════════════════════════════
+origin/main before: 733880b
+
+$ bin/fm-merge-local.sh land-d1 --push
+CHECKING: fetch origin/main before any local or remote landing
+From file:///tmp/fm-e2e-demo.work/behind/origin
+ * branch            main       -> FETCH_HEAD
+REFUSED: fm/land-d1 is not a fast-forward of origin/main (the default branch advanced or diverged).
+Recovery: have the crewmate fetch origin and merge origin/main into fm/land-d1 additively; never rebase or force. Re-run validation, report ready, then retry.
+exit status: 1 (refused)
+origin/main after : 733880b  (unchanged)
+fm/land-d1 still intact at 8a59a6d; nothing forced, stashed, or reset
+
+════════════════════════════════════════════════════════════════
+SCENE 5 - worker follows the additive remediation, then the landing succeeds
+════════════════════════════════════════════════════════════════
+
+$ git -c user.name=Captain -c user.email=captain@example.invalid -c commit.gpgsign=false -C /tmp/fm-e2e-demo.work/behind/project fetch -q origin main
+$ git merge origin/main    (additive merge - no rebase, no force)
+    460dff1 Merge remote-tracking branch 'origin/main' into fm/land-d1
+    8a59a6d feat: land-d1
+    733880b other: advance main
+
+$ bin/fm-merge-local.sh land-d1 --push
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+CHECKING: fetch origin/main before any local or remote landing
+From file:///tmp/fm-e2e-demo.work/behind/origin
+ * branch            main       -> FETCH_HEAD
+ABOUT TO: fast-forward local main from fm/land-d1 and push main to origin
+SKIPPING: pull-request-only checks will not run; use this direct-main path only with the approved validation evidence
+To file:///tmp/fm-e2e-demo.work/behind/origin.git
+   733880b..460dff1  main -> main
+landed fm/land-d1 on local and origin/main (733880b -> 460dff1) in /tmp/fm-e2e-demo.work/behind/project
+origin/main now   : 460dff1
+
+════════════════════════════════════════════════════════════════
+SCENE 6 - a live task switches delivery mode with one supported command
+════════════════════════════════════════════════════════════════
+--- 6a: a no-mistakes gate agent may not change a live task's mode -----
+
+$ bin/fm-task-mode.sh mode-e1 local-only
+error: no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)
+  exit status: 3 (refused); mode= still mode=no-mistakes; no status file: confirmed
+
+--- 6b: the operator path (firstmate outside a gate checkout) ----------
+mode= before: mode=no-mistakes
+
+$ bin/fm-task-mode.sh mode-e1 local-only
+STEER DELIVERED TO WORKER (task mode-e1):
+  Delivery mode changed from no-mistakes to local-only and is recorded in task metadata. This supersedes the initial delivery section in your brief. Stop after a clean commit on fm/mode-e1; do not push, open a PR, merge, or run no-mistakes. If the default branch advanced, fetch origin and merge its default branch additively into fm/mode-e1; never rebase or force. Re-run validation, then report done: ready in branch fm/mode-e1.
+changed task mode-e1 delivery mode from no-mistakes to local-only and notified the worker
+mode= after : mode=local-only   (exactly 1 record)
+durable status event: note: delivery mode changed from no-mistakes to local-only by bin/fm-task-mode.sh
+
+--- 6c: switching the same live task back to no-mistakes --------------
+
+$ bin/fm-task-mode.sh mode-e1 no-mistakes
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+STEER DELIVERED TO WORKER (task mode-e1):
+  Delivery mode changed from local-only to no-mistakes and is recorded in task metadata. This supersedes the initial delivery section in your brief. After a clean commit on fm/mode-e1, report done and wait for firstmate to invoke the no-mistakes validation path; do not push or open a PR yourself and never merge a PR.
+changed task mode-e1 delivery mode from local-only to no-mistakes and notified the worker
+mode= now   : mode=no-mistakes
+
+════════════════════════════════════════════════════════════════
+SCENE 7 - the mode set stays closed at three; no fourth mode is accepted
+════════════════════════════════════════════════════════════════
+  [fm-task-mode local-push] error: --mode must be one of no-mistakes, direct-PR, local-only (got 'local-push')
+  [fm-task-mode no-mistakes-prod-only] error: no-mistakes-prod-only is a registry policy, not a task mode; classify this task's surface and resolve it to no-mistakes or direct-PR
+  [fm-task-mode direct-main] error: --mode must be one of no-mistakes, direct-PR, local-only (got 'direct-main')
+  the same validator (bin/fm-delivery-mode-lib.sh) backs brief creation and spawn:
+  [fm-brief]   error: --mode must be one of no-mistakes, direct-PR, local-only (got 'local-push')
+  [fm-brief]   error: no-mistakes-prod-only is a registry policy, not a task mode; classify this task's surface and resolve it to no-mistakes or direct-PR at intake
+  mode= record after all rejections: mode=no-mistakes  (unchanged)
+
+════════════════════════════════════════════════════════════════
+SCENE 8 - unknown flags refused; --push never happens by accident
+════════════════════════════════════════════════════════════════
+  error: unknown option: --force
+  usage: fm-merge-local.sh <task-id> [--push]
+
+════════════════════════════════════════════════════════════════
+SCENE 9 - --push on a project with no remote refuses BEFORE touching local main
+════════════════════════════════════════════════════════════════
+
+$ bin/fm-merge-local.sh nr-1 --push
+error: --push requires an origin remote; local main was not changed
+  exit status: 1
+  local main: 3ff5333 -> 3ff5333   (unchanged: YES)
+  fm/nr-1 intact at 3e8bdcc
+
+════════════════════════════════════════════════════════════════
+SCENE 10 - remote rejects the push: local landing is reported honestly, nothing is forced
+════════════════════════════════════════════════════════════════
+
+$ bin/fm-merge-local.sh rj-1 --push
+CHECKING: fetch origin/main before any local or remote landing
+From file:///tmp/fm-e2e-safety.work/reject/origin
+ * branch            main       -> FETCH_HEAD
+ABOUT TO: fast-forward local main from fm/rj-1 and push main to origin
+SKIPPING: pull-request-only checks will not run; use this direct-main path only with the approved validation evidence
+remote: remote: main is protected; direct pushes are rejected        
+To file:///tmp/fm-e2e-safety.work/reject/origin.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to 'file:///tmp/fm-e2e-safety.work/reject/origin.git'
+error: local main landed at e0c8163, but the direct push to origin/main failed; do not force, reset, or discard anything
+  exit status: 1
+  origin/main: 3ff5333 -> 3ff5333   (unchanged)
+  local main : e0c8163  (landed, and the command said so)
+  fm/rj-1 intact at e0c8163; no reflog reset/force performed:
+    e0c8163 main@{2026-08-22}: merge fm/rj-1: Fast-forward
+    3ff5333 main@{2026-08-22}: commit (initial): base
