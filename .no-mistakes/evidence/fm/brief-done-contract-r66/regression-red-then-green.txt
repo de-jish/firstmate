@@ -1,0 +1,76 @@
+=== 1. RED at base 575b1e8 (regression reproduces the reported failure) ===
+$ git show 575b1e8:bin/fm-brief.sh > bin/fm-brief.sh   # new tests, old generator
+$ bash tests/fm-brief.test.sh
+ok - fm-brief.sh: bash -n succeeds
+/var/folders/x6/wzd4mlq51c73x0xglxj3bn_m0000gn/T//fm-brief.F1y9uz/heredoc-in-substitution.sh:2
+ok - fm-brief.sh: no heredoc is nested inside a command substitution (Bash 3.2 parse-safe)
+ok - fm-brief.sh: --help renders the complete header
+ok - fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly
+ok - fm-brief.sh: ship --mode is required and closed-set validated
+not ok - explicit no-mistakes brief did not render the continuous pipeline handoff: DOD must define exactly one done signal, found 2: `done: PR {url} checks green` `done: {summary}`
+
+=== 2. GREEN at target fc4365d ===
+$ bash tests/fm-brief.test.sh
+ok - fm-brief.sh: bash -n succeeds
+/var/folders/x6/wzd4mlq51c73x0xglxj3bn_m0000gn/T//fm-brief.rKldbp/heredoc-in-substitution.sh:2
+ok - fm-brief.sh: no heredoc is nested inside a command substitution (Bash 3.2 parse-safe)
+ok - fm-brief.sh: --help renders the complete header
+ok - fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly
+ok - fm-brief.sh: ship --mode is required and closed-set validated
+ok - fm-brief.sh: the explicit ship mode wins over the registered posture
+ok - fm-brief.sh: --yolo and scout/secondmate --mode are refused, never silently dropped
+ok - fm-brief.sh: faster paths use configured authority without stacked review
+ok - fm-brief.sh: each delivery mode states one completion bar at its own terminal event
+ok - fm-brief.sh: no-mistakes DOD keeps its apostrophe prose, now parse-safe
+ok - fm-brief.sh: ship project-memory wording carries the AGENTS.md authoring bar
+ok - fm-brief.sh: --herdr-lab emits the complete hard safety contract
+ok - fm-brief.sh: --herdr-lab uses its quoted Firstmate-owned helper path
+ok - fm-brief.sh: ship and scout scaffolds make omitted Herdr intent fail-visible
+ok - fm-brief.sh: Herdr lab contract covers scouts and rejects secondmate misuse
+ok - fm-brief.sh: --no-projects scaffolds a project-less charter and guards misuse
+ok - fm-brief.sh: marked requests avoid generic acknowledgements and preserve material reporting
+ok - fm-brief.sh: relative directory inputs ignore CDPATH, render stable absolute charter paths, or fail loudly
+ok - fm-brief.sh: custom pause verb renders in every scaffold
+ok - fm-brief.sh: investigation and visual-review completions load the shared decision policy
+ok - fm-brief: scout and secondmate code paths still scaffold well-formed briefs
+
+=== 3. Mutation matrix: each of the three original statements, and two rewordings, individually re-break the contract ===
+
+########## M1: premature commit-completion bar (the original base sentence) returns ##########
+--- mutation applied to bin/fm-brief.sh (generated DOD text) ---
+@@ -388 +388 @@ Delivery contract: mode=no-mistakes
+-The task is complete only after no-mistakes reports CI green and you can report \`done: PR {url} checks green\`.
++The task is complete only when committed on your branch.
+--- tests/fm-brief.test.sh verdict ---
+not ok - explicit no-mistakes brief did not render the continuous pipeline handoff: completion bar must be reached at PR {url} checks green, not earlier: The task is complete only when committed on your branch.
+
+########## M2: generic done-summary stop returns alongside the green-PR bar ##########
+--- mutation applied to bin/fm-brief.sh (generated DOD text) ---
+@@ -389,0 +390 @@ Once the implementation is committed on your branch, proceed directly into no-mi
++When you believe it is complete, append \`done: {summary}\` to the status file and stop.
+--- tests/fm-brief.test.sh verdict ---
+not ok - explicit no-mistakes brief did not render the continuous pipeline handoff: DOD must define exactly one done signal, found 2: `done: PR {url} checks green` `done: {summary}`
+
+########## M3: wait-for-firstmate steer returns verbatim (also names a harness-specific skill form) ##########
+--- mutation applied to bin/fm-brief.sh (generated DOD text) ---
+@@ -390,0 +391 @@ Start the run yourself, invoking the no-mistakes skill the way your own harness
++Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
+--- tests/fm-brief.test.sh verdict ---
+not ok - no-mistakes DOD: DOD hard-codes a harness-specific skill invocation form: /no-mistakes 
+
+########## M4: wait-for-firstmate steer returns REWORDED and harness-neutral ##########
+--- mutation applied to bin/fm-brief.sh (generated DOD text) ---
+@@ -390,0 +391 @@ Start the run yourself, invoking the no-mistakes skill the way your own harness
++Firstmate will then instruct you to start validation and ship a PR.
+--- tests/fm-brief.test.sh verdict ---
+not ok - no-mistakes DOD hands the validation start back to firstmate: Firstmate will then instruct you to start validation and ship a PR.
+
+########## M5: early stop that quotes the terminal payload it has not yet earned ##########
+--- mutation applied to bin/fm-brief.sh (generated DOD text) ---
+@@ -396,0 +397 @@ Do not hand-edit, commit, or fix findings yourself while a run is active - the p
++Once the work is committed, append \`done: PR {url} checks green\` to the status file and stop until firstmate replies.
+--- tests/fm-brief.test.sh verdict ---
+not ok - explicit no-mistakes brief did not render the continuous pipeline handoff: a stop directive ends the task before PR {url} checks green: Once the work is committed, append `done: PR {url} checks green` to the status file and stop until firstmate replies.
+
+########## worktree after the harness ##########
+(no output above = bin/fm-brief.sh restored to the shipped fixed version)

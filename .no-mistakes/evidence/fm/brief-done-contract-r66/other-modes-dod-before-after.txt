@@ -1,0 +1,32 @@
+================ mode=direct-PR : generated '# Definition of done' (before 575b1e8 -> after fc4365d) ================
+--- before (direct-PR)
++++ after (direct-PR)
+@@ -1,6 +1,6 @@
+ # Definition of done
+ Delivery contract: mode=direct-PR
+ This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
+-The task is complete only when committed on your branch.
++The task is complete only when the PR is open and you can report `done: PR {url}`.
+ When it is implemented and committed, push your branch and open a PR with `gh-axi`, then append `done: PR {url}` to the status file and stop.
+-Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
++Do NOT run the no-mistakes pipeline. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
+
+--- after, rendered in full ---
+# Definition of done
+Delivery contract: mode=direct-PR
+This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
+The task is complete only when the PR is open and you can report `done: PR {url}`.
+When it is implemented and committed, push your branch and open a PR with `gh-axi`, then append `done: PR {url}` to the status file and stop.
+Do NOT run the no-mistakes pipeline. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
+
+================ mode=local-only : generated '# Definition of done' (before 575b1e8 -> after fc4365d) ================
+
+--- after, rendered in full ---
+# Definition of done
+Delivery contract: mode=local-only
+This task ships **local-only**: no remote, no PR, no pipeline.
+The task is complete only when committed on your branch `fm/demo-local-only`. Do NOT push, do NOT open a PR, do NOT merge.
+Keep your branch a clean fast-forward onto the current default branch - if `main` has advanced, rebase onto it so the eventual merge stays a fast-forward.
+When it is implemented and committed, append `done: ready in branch fm/demo-local-only` to the status file and stop.
+The configured merge authority approves the ready branch, then firstmate merges it into local `main` through the guarded fast-forward path.
+

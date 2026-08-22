@@ -1,0 +1,20 @@
+# Pre-existing failures (NOT touched by this change, NOT fixed here)
+
+$ git diff --name-only 575b1e8..fc4365d
+AGENTS.md
+bin/fm-brief.sh
+tests/fm-brief.test.sh
+
+Neither failing suite, nor any file it exercises, appears above; both suites are
+byte-identical at base and at target, so their base and target results are the same run.
+
+$ git diff --stat 575b1e8..fc4365d -- tests/fm-composer-lib.test.sh tests/fm-muse-harness.test.sh bin/fm-composer-lib.sh bin/fm-harness.sh
+(no output = unchanged)
+
+$ bash tests/fm-composer-lib.test.sh   # at fc4365d
+ok - matrix: muse's ⟩ reads empty everywhere and survives losing the styled-glyph signal
+ok - matrix: cursor's reverse-video placeholder remnant reads empty; real typed text stays pending
+not ok - a half-block rule row must count as a structural edge
+
+$ bash tests/fm-muse-harness.test.sh   # at fc4365d
+not ok - fm-harness.sh under process 'muse-bin-0.1.0-R708.1' reported '', expected muse
