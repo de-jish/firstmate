@@ -387,7 +387,7 @@ EOF
 Delivery contract: mode=no-mistakes
 The task is complete only after no-mistakes reports CI green and you can report \`done: PR {url} checks green\`.
 Once the implementation is committed on your branch, proceed directly into no-mistakes validation without stopping or waiting for a firstmate steer.
-Invoke the no-mistakes skill yourself, in the form your own harness uses: \`$FM_ROOT/.agents/skills/harness-adapters/SKILL.md\` owns the verified invocation form for every harness.
+Start the run yourself, invoking the no-mistakes skill the way your own harness invokes skills.
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke the skill, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.

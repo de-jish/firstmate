@@ -186,8 +186,6 @@ For Cursor, select the intended reasoning class through a model id the account's
 
 Send the validation skill using the target harness's skill invocation form.
 Natural language is acceptable if uncertain.
-This table is the single owner of that form for both callers: firstmate sending a trigger through `fm-send`, and a `mode=no-mistakes` crewmate invoking the skill itself right after its implementation commit.
-`bin/fm-brief.sh` points the generated Definition of done here rather than restating any harness's form, so a brief stays harness-agnostic.
 
 - claude: `/<skill>`, for example `/no-mistakes`.
 - codex: `$<skill>`, for example `$no-mistakes`; `/<skill>` is claude-only and codex rejects it as "Unrecognized command".

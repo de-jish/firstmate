@@ -36,16 +36,28 @@ brief_dod_section() {
   awk 'f { print } /^# Definition of done$/ { f = 1 }' "$1"
 }
 
-# assert_single_completion_contract <brief> <done-payload> <artifact-regex> <label>
+# strip_done_payloads reads stdin and blanks every `done: ...` span.
 #
-# One terminal event per mode: the DOD carries exactly one `done:` payload,
-# exactly one "the task is complete" bar, that bar names the mode's terminal
-# artifact, and no stop directive ends the task at the commit unless the commit
-# IS the terminal event. Any premature completion claim adds a second signal or
-# retargets the bar, and both are fatal here.
+# The payload names the terminal artifact ("PR {url}"), so a sentence that
+# merely quotes it would otherwise satisfy any check for that artifact. Every
+# assertion below therefore reads the payload-free remainder of a line: what the
+# DOD says the worker must have REACHED, never what it tells it to type.
+strip_done_payloads() {
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  sed 's/`done: [^`]*`//g'
+}
+
+# assert_single_completion_contract <brief> <done-payload> <terminal-regex> <label>
+#
+# One terminal event per mode. The DOD must carry exactly one `done:` payload,
+# exactly one "the task is complete" bar that names the mode's terminal event,
+# and exactly one terminal stop directive that also names it. Any stop that is
+# not an escalation must be that terminal one, so a "commit, report, and stop"
+# instruction cannot come back under any wording - including one that quotes the
+# terminal payload at a point the worker cannot yet have earned it.
 assert_single_completion_contract() {
-  local brief="$1" payload="$2" artifact="$3" label="$4"
-  local dod payloads payload_count bars bar_count premature
+  local brief="$1" payload="$2" terminal="$3" label="$4"
+  local dod payloads payload_count bars bar_count line bare terminal_stops
 
   dod=$(brief_dod_section "$brief")
   [ -n "$dod" ] || fail "$label: brief has no Definition of done section"
@@ -62,24 +74,38 @@ assert_single_completion_contract() {
   bar_count=$(printf '%s\n' "$bars" | grep -c . || true)
   [ "$bar_count" -eq 1 ] \
     || fail "$label: DOD must state exactly one completion bar, found $bar_count: $bars"
-  printf '%s\n' "$bars" | grep -qiE "$artifact" \
+  printf '%s\n' "$bars" | strip_done_payloads | grep -qiE "$terminal" \
     || fail "$label: completion bar must be reached at $payload, not earlier: $bars"
 
-  premature=$(printf '%s\n' "$dod" \
-    | grep -iE '(and|then) stop[.;]' \
-    | grep -i 'commit' \
-    | grep -vF "\`done: $payload\`" || true)
-  [ -z "$premature" ] \
-    || fail "$label: DOD stops the worker at its commit instead of at $payload: $premature"
+  terminal_stops=0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    bare=$(printf '%s\n' "$line" | strip_done_payloads)
+    if printf '%s\n' "$bare" | grep -qiE 'escalat|needs-decision|blocked'; then
+      # An escalation stop is legitimate (rule 6), but only as an escalation:
+      # it may never double as the completion signal for the commit.
+      if printf '%s\n' "$bare" | grep -qi 'commit'; then
+        fail "$label: an escalation stop doubles as a stop at the commit: $line"
+      fi
+      continue
+    fi
+    printf '%s\n' "$bare" | grep -qiE "$terminal" \
+      || fail "$label: a stop directive ends the task before $payload: $line"
+    terminal_stops=$((terminal_stops + 1))
+  done <<STOPS
+$(printf '%s\n' "$dod" | grep -iE '(and|then) stop[.;,]' || true)
+STOPS
+  [ "$terminal_stops" -eq 1 ] \
+    || fail "$label: DOD must carry exactly one terminal stop directive, found $terminal_stops"
 }
 
 # assert_no_harness_specific_skill_form <brief> <label>
 #
 # fm-spawn hands this same brief text to every supported harness, and
-# `.agents/skills/harness-adapters/SKILL.md` is the single owner of how each one
-# invokes a skill (claude takes `/<skill>`, codex rejects that form and needs
-# `$<skill>`, others need natural language). A brief that names one harness's
-# form hands the other harnesses an instruction their TUI refuses.
+# harnesses differ in how a skill is invoked (`.agents/skills/harness-adapters/SKILL.md`
+# records that claude takes `/<skill>` while codex rejects that form and needs
+# `$<skill>`). A brief that names one harness's form hands every other harness an
+# instruction its TUI refuses, so the DOD must name none of them.
 assert_no_harness_specific_skill_form() {
   local brief="$1" label="$2" forms
   forms=$(brief_dod_section "$brief" \
@@ -405,9 +431,9 @@ test_delivery_contract_is_single_and_terminal_per_mode() {
     assert_single_completion_contract "$brief" "$payload" "$artifact" "$mode DOD"
     assert_no_harness_specific_skill_form "$brief" "$mode DOD"
   done <<ROWS
-no-mistakes|PR {url} checks green|ci green
-direct-PR|PR {url}|pr
-local-only|ready in branch fm/brief-contract-local-only|branch
+no-mistakes|PR {url} checks green|green
+direct-PR|PR {url}|\bpr\b
+local-only|ready in branch fm/brief-contract-local-only|commit
 ROWS
   pass "fm-brief.sh: each delivery mode states one completion bar at its own terminal event"
 }
@@ -415,7 +441,7 @@ ROWS
 # Pin the specific line the bug lived on: the no-mistakes DOD's no-mistakes
 # reference must render as plain prose with no dangling apostrophe artifact.
 test_no_mistakes_dod_wording() {
-  local home id brief handoff
+  local home id brief handoff starts
   home="$TMP_ROOT/wording-home"
   mkdir -p "$home/data"
   id="brief-wording-b1"
@@ -426,16 +452,16 @@ test_no_mistakes_dod_wording() {
   # implementation commit: the premature commit-completion bar, the generic
   # `done: {summary}` stop, and the wait-for-firstmate steer cannot coexist with
   # the green-PR completion bar, however any of them is reworded.
-  assert_single_completion_contract "$brief" "PR {url} checks green" 'ci green' \
+  assert_single_completion_contract "$brief" "PR {url} checks green" 'green' \
     "no-mistakes DOD"
   handoff=$(brief_dod_section "$brief" | grep -iE 'firstmate [a-z]+ (then )?(instruct|tell|steer|trigger|start|run|invoke)' || true)
   [ -z "$handoff" ] \
     || fail "no-mistakes DOD hands the validation start back to firstmate: $handoff"
-  assert_grep "proceed directly into no-mistakes validation without stopping or waiting for a firstmate steer" "$brief" \
-    "no-mistakes DOD must send the worker straight from its commit into validation"
+  starts=$(brief_dod_section "$brief" \
+    | grep -iE '(invoke|start|starting|begin|launch|enter|proceed)[^.]*no-mistakes' || true)
+  [ -n "$starts" ] \
+    || fail "no-mistakes DOD never makes the worker itself the actor that starts validation"
   assert_no_harness_specific_skill_form "$brief" "no-mistakes DOD"
-  assert_grep ".agents/skills/harness-adapters/SKILL.md\` owns the verified invocation form" "$brief" \
-    "no-mistakes DOD must defer the skill invocation form to harness-adapters"
   assert_grep "no-mistakes itself provides for the mechanics" "$brief" \
     "no-mistakes DOD lost its guidance-reference sentence"
   # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
