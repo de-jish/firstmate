@@ -195,8 +195,65 @@ SH
   pass "fm-task-mode: a no-mistakes gate agent cannot mutate or notify a live task"
 }
 
+test_push_without_an_origin_refuses_before_touching_local_main() {
+  local project home id=no-origin-b3 out status main_before
+  project="$TMP_ROOT/no-origin/project"
+  home="$TMP_ROOT/no-origin/home"
+  mkdir -p "$project" "$home/state"
+  git -C "$project" init -q -b main
+  printf 'base\n' > "$project/base.txt"
+  git -C "$project" add base.txt
+  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm base
+  add_task_commit "$project" "$id"
+  write_task_meta "$home" "$id" "$project" local-only
+  main_before=$(git -C "$project" rev-parse main)
+
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$MERGE_LOCAL" "$id" --push 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "--push succeeded on a project with no origin remote"
+  assert_contains "$out" "--push requires an origin remote" \
+    "the remoteless refusal did not name the missing origin"
+  [ "$(git -C "$project" rev-parse main)" = "$main_before" ] || \
+    fail "the refused --push still moved local main"
+  assert_contains "$out" "local main was not changed" \
+    "the remoteless refusal did not state that local main is untouched"
+  pass "fm-merge-local: --push on a remoteless project refuses before any local mutation"
+}
+
+test_rejected_push_reports_the_partial_landing_without_rewriting_history() {
+  local rec project remote home id=push-rejected-b4 out status task_head remote_before
+  rec=$(make_project rejected)
+  IFS='|' read -r project remote home <<EOF
+$rec
+EOF
+  add_task_commit "$project" "$id"
+  write_task_meta "$home" "$id" "$project" local-only
+  task_head=$(git -C "$project" rev-parse "fm/$id")
+  remote_before=$(git --git-dir="$remote" rev-parse main)
+  # Stand in for a protected default branch: origin rejects every push to main.
+  printf '#!/bin/sh\nexit 1\n' > "$remote/hooks/pre-receive"
+  chmod +x "$remote/hooks/pre-receive"
+
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$MERGE_LOCAL" "$id" --push 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a rejected direct push was reported as a successful landing"
+  assert_contains "$out" "the direct push to origin/main failed" \
+    "the rejected push did not name the failed remote landing"
+  assert_contains "$out" "do not force, reset, or discard anything" \
+    "the rejected push did not preserve the no-force recovery contract"
+  [ "$(git --git-dir="$remote" rev-parse main)" = "$remote_before" ] || \
+    fail "a rejected push still moved remote main"
+  [ "$(git -C "$project" rev-parse main)" = "$task_head" ] || \
+    fail "the reported local landing did not actually happen"
+  [ "$(git -C "$project" rev-parse "fm/$id")" = "$task_head" ] || \
+    fail "the failed push rewrote the unlanded task branch"
+  pass "fm-merge-local: a rejected direct push reports the partial landing and rewrites nothing"
+}
+
 test_push_landing_updates_remote_and_warns_before_mutation
 test_plain_landing_preserves_the_no_push_default
+test_push_without_an_origin_refuses_before_touching_local_main
+test_rejected_push_reports_the_partial_landing_without_rewriting_history
 test_branch_behind_main_is_refused_with_additive_recovery
 test_live_mode_change_records_and_notifies
 test_gate_agent_cannot_change_a_live_mode
