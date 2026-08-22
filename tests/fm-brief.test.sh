@@ -47,6 +47,11 @@ strip_done_payloads() {
   sed 's/`done: [^`]*`//g'
 }
 
+# Any directive that ends the worker's turn, however it is phrased. The brief's
+# own Rules section already says "do not end the turn after it", so an early exit
+# can be worded as an end-of-turn just as easily as a stop; both must be seen.
+TURN_ENDING_DIRECTIVE='(^|[^[:alnum:]-])(stop|halt)([^[:alnum:]-]|$)|end (your|the) turn|(finish|conclude) (here|your turn)'
+
 # assert_single_completion_contract <brief> <done-payload> <terminal-regex> <label>
 #
 # One terminal event per mode. The DOD must carry exactly one `done:` payload,
@@ -93,7 +98,7 @@ assert_single_completion_contract() {
       || fail "$label: a stop directive ends the task before $payload: $line"
     terminal_stops=$((terminal_stops + 1))
   done <<STOPS
-$(printf '%s\n' "$dod" | grep -iE '(and|then) stop[.;,]' || true)
+$(printf '%s\n' "$dod" | grep -iE "$TURN_ENDING_DIRECTIVE" || true)
 STOPS
   [ "$terminal_stops" -eq 1 ] \
     || fail "$label: DOD must carry exactly one terminal stop directive, found $terminal_stops"
@@ -105,11 +110,12 @@ STOPS
 # harnesses differ in how a skill is invoked (`.agents/skills/harness-adapters/SKILL.md`
 # records that claude takes `/<skill>` while codex rejects that form and needs
 # `$<skill>`). A brief that names one harness's form hands every other harness an
-# instruction its TUI refuses, so the DOD must name none of them.
+# instruction its TUI refuses, so the DOD must name none of them - including
+# inside backticks or quotes, which is how this DOD writes every other command.
 assert_no_harness_specific_skill_form() {
   local brief="$1" label="$2" forms
   forms=$(brief_dod_section "$brief" \
-    | grep -Eo '(^|[[:space:]])[/$]no-mistakes([^-[:alnum:]]|$)' || true)
+    | grep -Eo '(^|[^-[:alnum:]_])[/$]no-mistakes([^-[:alnum:]]|$)' || true)
   [ -z "$forms" ] \
     || fail "$label: DOD hard-codes a harness-specific skill invocation form:$forms"
 }
@@ -441,7 +447,7 @@ ROWS
 # Pin the specific line the bug lived on: the no-mistakes DOD's no-mistakes
 # reference must render as plain prose with no dangling apostrophe artifact.
 test_no_mistakes_dod_wording() {
-  local home id brief handoff starts
+  local home id brief handoff continuation
   home="$TMP_ROOT/wording-home"
   mkdir -p "$home/data"
   id="brief-wording-b1"
@@ -457,10 +463,15 @@ test_no_mistakes_dod_wording() {
   handoff=$(brief_dod_section "$brief" | grep -iE 'firstmate [a-z]+ (then )?(instruct|tell|steer|trigger|start|run|invoke)' || true)
   [ -z "$handoff" ] \
     || fail "no-mistakes DOD hands the validation start back to firstmate: $handoff"
-  starts=$(brief_dod_section "$brief" \
-    | grep -iE '(invoke|start|starting|begin|launch|enter|proceed)[^.]*no-mistakes' || true)
-  [ -n "$starts" ] \
-    || fail "no-mistakes DOD never makes the worker itself the actor that starts validation"
+  # The commit must hand off to validation in the same breath: a line that names
+  # the commit, sends the worker onward from it, and ends no turn there. The
+  # unrelated `--intent` sentence names no commit, so it cannot stand in for one.
+  continuation=$(brief_dod_section "$brief" \
+    | grep -i 'commit' \
+    | grep -iE '\b(proceed|continue|carry on|keep going|go|move|start|begin)\b[^.]*(no-mistakes|validation|the run)' \
+    | grep -ivE "$TURN_ENDING_DIRECTIVE" || true)
+  [ -n "$continuation" ] \
+    || fail "no-mistakes DOD never sends the worker from its own commit straight into validation"
   assert_no_harness_specific_skill_form "$brief" "no-mistakes DOD"
   assert_grep "no-mistakes itself provides for the mechanics" "$brief" \
     "no-mistakes DOD lost its guidance-reference sentence"
