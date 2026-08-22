@@ -22,6 +22,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-delivery-mode-lib.sh
+. "$SCRIPT_DIR/fm-delivery-mode-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
@@ -61,13 +63,7 @@ done
   echo "error: promotion requires --yolo <on|off>; it is this task's routine approval authority, not a project lookup" >&2
   exit 1
 }
-case "$MODE" in
-  no-mistakes|direct-PR|local-only) ;;
-  no-mistakes-prod-only)
-    echo "error: no-mistakes-prod-only is a registry policy, not a task mode; classify this task's surface and resolve it to no-mistakes or direct-PR" >&2
-    exit 1 ;;
-  *) echo "error: --mode must be one of no-mistakes, direct-PR, local-only (got '$MODE')" >&2; exit 1 ;;
-esac
+fm_delivery_mode_validate "$MODE"
 case "$YOLO" in
   on|off) ;;
   *) echo "error: --yolo must be on or off (got '$YOLO')" >&2; exit 1 ;;
