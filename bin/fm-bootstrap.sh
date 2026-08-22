@@ -13,6 +13,8 @@
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "PR_CHECK_MIGRATION: <private remediation>",
 #                 "TANGLE: <remediation>",
+#                 "SHALLOW: <remediation>",
+#                 "DECISION_HOLD: <identity> <defect> [<remediation>]",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
@@ -48,6 +50,22 @@
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
 #          on a feature branch instead of its default branch - a crewmate's work
 #          landed in the primary instead of its own worktree; restore it per the line.
+#          A SHALLOW line means FM_ROOT is a depth-limited clone. Nothing local
+#          shows it: it surfaces only when a validation push is rejected with
+#          'shallow update not allowed', deep inside a pipeline run, in a worktree
+#          whose occupant cannot deepen its parent checkout. The check reads this
+#          repo's own shallow marker and makes no network call; the remediation
+#          (git fetch --unshallow) is a checkout repair, so it follows TANGLE's
+#          locked/read-only wording switch.
+#          DECISION_HOLD lines are captain decisions the completion gate calls
+#          neither actively held nor durably resolved. bin/fm-decision-hold.sh's
+#          `audit` owns what a valid hold state is and decides whether a finding
+#          carries a remediation at all - it prints one only where a single command
+#          is correct for every state that finding fires on, and points at
+#          docs/decision-hold-lifecycle.md otherwise; bootstrap only prefixes its
+#          findings, so this session-start report and the teardown gate can never
+#          disagree about one identity. The audit is silent when tasks-axi cannot be
+#          read, because that is already its own MISSING line.
 #          treehouse is also MISSING when its installed version lacks
 #          "treehouse get --lease" support.
 #          no-mistakes is also MISSING when its installed version is older than
@@ -1160,6 +1178,27 @@ detect_local_tools() {
   fi
 }
 
+# Session-start detection for captain decisions closed, released, or archived
+# outside their owner. Until now the only enforcement point was one origin's own
+# scout teardown, so a home that never tore that origin down was wrong and did not
+# know. bin/fm-decision-hold.sh's `audit` owns what a valid hold state is and
+# decides whether a finding carries a remediation at all; this only prefixes its
+# findings, so the two surfaces cannot drift apart. The compatibility verdict is handed down so the child does
+# not re-probe tasks-axi, and an unusable tasks-axi stays silent here because it
+# already has its own MISSING line.
+detect_decision_holds() {
+  local line
+  command -v tasks-axi >/dev/null 2>&1 || return 0
+  fm_tasks_axi_compatible || return 0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    echo "DECISION_HOLD: $line"
+  done <<EOF
+$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+  FM_TASKS_AXI_COMPATIBLE=1 "$SCRIPT_DIR/fm-decision-hold.sh" audit 2>/dev/null)
+EOF
+}
+
 detect_local_config() {
   # Worktree-tangle check: the firstmate primary checkout (FM_ROOT) must sit on its
   # default branch, not a feature branch (see fm-tangle-lib.sh). Scoped to the
@@ -1171,6 +1210,20 @@ detect_local_config() {
       echo "TANGLE: primary checkout on feature branch '$tangle_branch' (expected '$tangle_default'); the work is safe on that ref - read-only session must leave restore work to the session holding the fleet lock"
     else
       echo "TANGLE: primary checkout on feature branch '$tangle_branch' (expected '$tangle_default'); the work is safe on that ref - restore the primary with: git -C $FM_ROOT checkout $tangle_default, then re-validate the branch in a proper worktree"
+    fi
+  fi
+  # Shallow-checkout check: a depth-limited firstmate checkout looks healthy
+  # everywhere except the one place it matters. Its own worktrees inherit the
+  # shallow object store, so a validation push is rejected with 'shallow update
+  # not allowed' far from the cause, in a worktree whose occupant cannot deepen
+  # the parent. Detection reads this repo's own shallow marker and never touches
+  # the network; the deepening fetch itself is a checkout repair, so it follows
+  # the tangle line's locked/read-only ownership switch above.
+  if [ "$(git -C "$FM_ROOT" rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+    if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" = 1 ] && [ "${FM_BOOTSTRAP_LOCKED:-0}" != 1 ]; then
+      echo "SHALLOW: firstmate checkout is a shallow clone, so a validation push from any worktree of it can be rejected with 'shallow update not allowed' deep inside a pipeline run - read-only session must leave the deepening fetch to the session holding the fleet lock"
+    else
+      echo "SHALLOW: firstmate checkout is a shallow clone, so a validation push from any worktree of it can be rejected with 'shallow update not allowed' deep inside a pipeline run - deepen it with: git -C $FM_ROOT fetch --unshallow"
     fi
   fi
   crew=
@@ -1187,6 +1240,18 @@ detect_local_config() {
     echo "MISSING_MANUAL: cursor-agent (instructions: $(manual_install_url cursor-agent))"
   fi
   crew_dispatch_validate
+  # The decision-hold sweep below reads the backlog, and it is NOT timed, because
+  # from here it cannot be. fm-timing-lib.sh records only while FM_TIMING_LOG
+  # names a file, and the deferred network stage is the only thing that ever
+  # allocates one - which it does while invoking this script with
+  # FM_BOOTSTRAP_NETWORK=only, the one phase that skips this entire function. A
+  # bracket here would never fire on any run a home makes, and an instrument that
+  # cannot fire is worse than none: the next reader takes it for coverage and
+  # stops looking. What bounds this sweep instead is construction, not
+  # measurement - fm-decision-hold.sh's audit answers a healthy home from one
+  # backlog read whatever the number of decisions, and its own regression pins
+  # that count.
+  detect_decision_holds
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] \
     && ! fm_backlog_backend_manual "$CONFIG" && fm_tasks_axi_compatible; then
     echo "BOOTSTRAP_INFO: tasks-axi available"

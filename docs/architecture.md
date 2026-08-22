@@ -170,6 +170,12 @@ Only a named non-default branch checked out in `FM_ROOT` is a worktree tangle.
 If another live session holds the fleet lock, both surfaces keep the alarm but switch to read-only wording with no repair command.
 Ship briefs also tell the crewmate to verify `pwd -P` and `git rev-parse --show-toplevel` before creating `fm/<id>`, then stop with a blocked status if it landed in the primary checkout.
 
+Sharing one repository has a second consequence: every worktree inherits the parent checkout's object store, including a depth-limited one.
+A shallow firstmate checkout looks healthy everywhere until a validation push is rejected with `shallow update not allowed`, deep inside a pipeline run, in a worktree whose occupant cannot deepen its parent.
+`bin/fm-bootstrap.sh` reads the checkout's own shallow marker with no network call and reports a `SHALLOW:` line at session start, before any work depends on it.
+The deepening `git fetch --unshallow` is a checkout repair, so the line follows the same locked and read-only ownership switch as the tangle line above.
+`tests/fm-bootstrap.test.sh` owns the portable regression coverage, and it pins the guard to the real push refusal rather than to its own code path.
+
 ## No-mistakes gate authority boundary
 
 Firstmate's own no-mistakes gate runs agents inside a checkout that also contains the fleet-captain identity in `AGENTS.md`, so gate execution needs an authority boundary separate from ordinary crewmate worktree isolation.

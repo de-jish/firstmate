@@ -724,6 +724,1035 @@ test_out_of_band_close_is_repairable_before_teardown() {
   pass "a decision closed outside the script is repairable and then clears teardown"
 }
 
+# A refusal that names a command is advice, and advice is followed. `repair`
+# accepts an identity that carries tasks-axi's hold_kind, which AGENTS.md section
+# 10 puts on ANY captain-gated thread, so any command that prints a `repair`
+# invocation can hand the agent a command that records a captain decision on work
+# no captain ever decided. Every printing surface must therefore ask the same
+# scope question the audit asks. This drives the ordinary captain-gated thread
+# through all three of them, proves none of them names a mutating command for it,
+# proves its body survives untouched, and proves a genuine decision closed out of
+# band still gets its remediation from each of the same three.
+test_no_surface_suggests_repair_for_an_ordinary_captain_thread() {
+  local home lookalike id show surface drifted outside out
+  home=$(make_home repair-suggestion-scope)
+  lookalike=capt-decision-ui-q2
+  printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
+  tasks_in "$home" add "$lookalike" "Captain thread about the sample UI" \
+    --kind captain --repo sample --body 'Some unrelated notes.' >/dev/null \
+    || fail "could not create the lookalike thread"
+  tasks_in "$home" hold "$lookalike" --reason "captain UI choice pending" --kind captain >/dev/null \
+    || fail "could not gate the lookalike thread on the captain"
+  tasks_in "$home" "done" "$lookalike" >/dev/null || fail "could not close the lookalike thread"
+  write_origin_meta "$home" capt
+
+  if run_decisions "$home" hold capt ui-q2 --title "Captain thread about the sample UI" \
+    --reason "captain UI choice pending" --repo sample > "$home/hold.out" 2> "$home/hold.err"; then
+    fail "hold accepted an ordinary captain-gated thread as a captain decision identity"
+  fi
+  assert_no_grep "repair" "$home/hold.err" \
+    "hold handed the agent a command that would record a captain decision on an unrelated thread"
+  assert_grep "not an identity this ledger owns as a captain decision" "$home/hold.err" \
+    "hold refused without saying what the identity actually is"
+  if run_decisions "$home" answer capt ui-q2 --decision-file "$home/decision.txt" \
+    > "$home/answer.out" 2> "$home/answer.err"; then
+    fail "answer accepted an ordinary captain-gated thread as a captain decision identity"
+  fi
+  assert_no_grep "repair" "$home/answer.err" \
+    "answer handed the agent a command that would record a captain decision on an unrelated thread"
+  if run_decisions "$home" decline capt ui-q2 --decision-file "$home/decision.txt" \
+    > "$home/decline.out" 2> "$home/decline.err"; then
+    fail "decline accepted an ordinary captain-gated thread as a captain decision identity"
+  fi
+  assert_no_grep "repair" "$home/decline.err" \
+    "decline handed the agent a command that would record a captain decision on an unrelated thread"
+
+  show=$(tasks_in "$home" show "$lookalike" --full)
+  assert_contains "$show" "Some unrelated notes." "a refusal rewrote the thread it refused"
+  assert_not_contains "$show" "Resolution recorded by fm-decision-hold." \
+    "a captain decision was manufactured on a thread no captain decided"
+
+  # The same three surfaces still name the remediation for a decision this script
+  # really did create, so scoping the suggestion narrowed nothing that matters.
+  id=sample-scope-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample scope" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the genuine origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample scope review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
+  run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "could not register the genuine hold"
+  tasks_in "$home" "done" "$id-decision-route" >/dev/null || fail "could not reproduce the direct close"
+
+  if run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample > "$home/rehold.out" 2> "$home/rehold.err"; then
+    fail "hold accepted a genuine decision closed with no captain answer"
+  fi
+  assert_grep "repair $id route --decision-file" "$home/rehold.err" \
+    "hold stopped naming the remediation for a decision this script created"
+  if run_decisions "$home" answer "$id" route --decision-file "$home/decision.txt" \
+    > "$home/genuine-answer.out" 2> "$home/genuine-answer.err"; then
+    fail "answer closed a decision that was already closed outside the script"
+  fi
+  assert_grep "repair $id route --decision-file" "$home/genuine-answer.err" \
+    "answer stopped naming the remediation for a decision this script created"
+  if run_decisions "$home" decline "$id" route --decision-file "$home/decision.txt" \
+    > "$home/genuine-decline.out" 2> "$home/genuine-decline.err"; then
+    fail "decline closed a decision that was already closed outside the script"
+  fi
+  assert_grep "repair $id route --decision-file" "$home/genuine-decline.err" \
+    "decline stopped naming the remediation for a decision this script created"
+  run_decisions "$home" repair "$id" route --decision-file "$home/decision.txt" >/dev/null \
+    || fail "the remediation all three printed did not attest the decision they named"
+
+  # In scope and unattestable: the home recorded this decision, so the ledger
+  # owns it, but an out-of-band write replaced the creation body after an unhold
+  # cleared hold_kind, and `repair` refuses an identity carrying neither signal.
+  # A refusal that names a command its own owner then refuses is the same
+  # contradiction about one identity as naming the wrong subject, so every
+  # surface must reach the verdict `repair` would.
+  run_decisions "$home" hold "$id" shape --title "Choose the sample shape" \
+    --reason "captain shape choice pending" --repo sample >/dev/null \
+    || fail "could not register the shape hold"
+  run_decisions "$home" complete "$id" shape >/dev/null \
+    || fail "completion failed while the shape decision was properly held"
+  tasks_in "$home" unhold "$id-decision-shape" >/dev/null || fail "could not clear the captain hold kind"
+  tasks_in "$home" update "$id-decision-shape" --body "Notes rewritten out of band." >/dev/null \
+    || fail "could not replace the creation body"
+  tasks_in "$home" "done" "$id-decision-shape" >/dev/null || fail "could not close the shape decision"
+
+  if run_decisions "$home" repair "$id" shape --decision-file "$home/decision.txt" \
+    > "$home/unattestable-repair.out" 2> "$home/unattestable-repair.err"; then
+    fail "repair attested an identity carrying neither captain-hold signal"
+  fi
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  assert_contains "$out" "$id-decision-shape was closed outside fm-decision-hold and no longer carries captain-hold provenance" \
+    "the audit stopped naming the decision it can no longer attest"
+  assert_contains "$out" "tasks-axi reopen $id-decision-shape" \
+    "the audit stopped naming the recovery that clears the decision it cannot attest"
+  if run_decisions "$home" hold "$id" shape --title "Choose the sample shape" \
+    --reason "captain shape choice pending" --repo sample > "$home/shape-hold.out" 2> "$home/shape-hold.err"; then
+    fail "hold accepted a decision closed with no captain answer"
+  fi
+  assert_no_grep "repair $id shape --decision-file" "$home/shape-hold.err" \
+    "hold named a repair command that repair itself refuses"
+  if run_decisions "$home" answer "$id" shape --decision-file "$home/decision.txt" \
+    > "$home/shape-answer.out" 2> "$home/shape-answer.err"; then
+    fail "answer closed a decision that was already closed outside the script"
+  fi
+  assert_no_grep "repair $id shape --decision-file" "$home/shape-answer.err" \
+    "answer named a repair command that repair itself refuses"
+  assert_grep "no longer carries captain-hold provenance" "$home/shape-answer.err" \
+    "answer gave a different verdict than the audit about one identity"
+  assert_grep "tasks-axi reopen $id-decision-shape" "$home/shape-answer.err" \
+    "answer named a different recovery than the audit for one identity"
+  if run_decisions "$home" decline "$id" shape --decision-file "$home/decision.txt" \
+    > "$home/shape-decline.out" 2> "$home/shape-decline.err"; then
+    fail "decline closed a decision that was already closed outside the script"
+  fi
+  assert_no_grep "repair $id shape --decision-file" "$home/shape-decline.err" \
+    "decline named a repair command that repair itself refuses"
+  assert_grep "no longer carries captain-hold provenance" "$home/shape-decline.err" \
+    "decline gave a different verdict than the audit about one identity"
+  assert_grep "tasks-axi reopen $id-decision-shape" "$home/shape-decline.err" \
+    "decline named a different recovery than the audit for one identity"
+
+  # In scope and no longer kind captain: `repair` refuses on kind before it reads
+  # anything else, so a surface that suggests it here names a command its own
+  # owner will not run. This runs in its own home because `complete` verifies
+  # every key the inventory already holds, and the decisions above are
+  # deliberately broken. Both ways an identity reaches this state are covered,
+  # because the second makes the older wording say something false rather than
+  # merely unhelpful - the decision really was answered through its owner.
+  drifted=$(make_home repair-suggestion-kind)
+  printf 'Captain chose the northern sample route.\n' > "$drifted/decision.txt"
+  mkdir -p "$drifted/data/$id"
+  tasks_in "$drifted" add "$id" "Investigate the sample scope" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the kind-drift origin"
+  write_origin_meta "$drifted" "$id"
+  printf 'done: report complete\n' > "$drifted/state/$id.status"
+  printf '# Sample scope review\n\nTwo captain choices remain.\n' > "$drifted/data/$id/report.md"
+
+  run_decisions "$drifted" hold "$id" size --title "Choose the sample size" \
+    --reason "captain size choice pending" --repo sample >/dev/null \
+    || fail "could not register the size hold"
+  run_decisions "$drifted" hold "$id" depth --title "Choose the sample depth" \
+    --reason "captain depth choice pending" --repo sample >/dev/null \
+    || fail "could not register the depth hold"
+  run_decisions "$drifted" complete "$id" size depth >/dev/null \
+    || fail "completion failed while both decisions were properly held"
+  run_decisions "$drifted" answer "$id" depth --decision-file "$drifted/decision.txt" >/dev/null \
+    || fail "the captain's answer to depth could not be recorded through its owner"
+  tasks_in "$drifted" "done" "$id-decision-size" >/dev/null || fail "could not close the size decision"
+  tasks_in "$drifted" update "$id-decision-size" --kind ship >/dev/null \
+    || fail "could not move the closed decision off kind captain"
+  tasks_in "$drifted" update "$id-decision-depth" --kind ship >/dev/null \
+    || fail "could not move the answered decision off kind captain"
+
+  if run_decisions "$drifted" repair "$id" size --decision-file "$drifted/decision.txt" \
+    > "$drifted/size-repair.out" 2> "$drifted/size-repair.err"; then
+    fail "repair attested an identity that is no longer kind captain"
+  fi
+  if run_decisions "$drifted" hold "$id" size --title "Choose the sample size" \
+    --reason "captain size choice pending" --repo sample \
+    > "$drifted/size-hold.out" 2> "$drifted/size-hold.err"; then
+    fail "hold accepted a decision that is no longer kind captain"
+  fi
+  assert_grep "but is kind ship" "$drifted/size-hold.err" \
+    "hold gave a different verdict than every other surface about one identity"
+  for surface in answer decline; do
+    if run_decisions "$drifted" "$surface" "$id" size --decision-file "$drifted/decision.txt" \
+      > "$drifted/size-$surface.out" 2> "$drifted/size-$surface.err"; then
+      fail "$surface closed a decision that is no longer kind captain"
+    fi
+    assert_no_grep "repair $id size --decision-file" "$drifted/size-$surface.err" \
+      "$surface named a repair command that repair itself refuses on kind"
+    assert_grep "but is kind ship" "$drifted/size-$surface.err" \
+      "$surface gave a different verdict than the audit about one identity"
+  done
+
+  show=$(tasks_in "$drifted" show "$id-decision-depth" --full)
+  assert_contains "$show" "Resolution recorded by fm-decision-hold." \
+    "the answered decision lost its resolution record, so this case reproduces nothing"
+  for surface in answer decline; do
+    if run_decisions "$drifted" "$surface" "$id" depth --decision-file "$drifted/decision.txt" \
+      > "$drifted/depth-$surface.out" 2> "$drifted/depth-$surface.err"; then
+      fail "$surface closed a decision that is no longer kind captain"
+    fi
+    assert_no_grep "no captain decision recorded" "$drifted/depth-$surface.err" \
+      "$surface said no captain decision was recorded while the record is still there"
+    assert_grep "kind drifted to ship" "$drifted/depth-$surface.err" \
+      "$surface did not name the kind that makes this a defect"
+    assert_grep "answered and recorded" "$drifted/depth-$surface.err" \
+      "$surface described a recorded captain answer as if it were missing"
+    assert_no_grep "give that work its own identity" "$drifted/depth-$surface.err" \
+      "$surface told the agent to abandon a captain decision that is on the record"
+    assert_grep "tasks-axi update $id-decision-depth --kind captain" "$drifted/depth-$surface.err" \
+      "$surface did not name the action that clears the finding"
+  done
+
+  # Out of scope but attestable: `hold` created this identity, an out-of-band
+  # write replaced the creation body, and no `complete` ran, so the ledger has no
+  # record of it as a decision it owns. The refusal must say only that, because
+  # `repair` reads a wider signal and does accept this identity - a refusal that
+  # claimed the script never created it, or that no decision can be recorded on
+  # it, would be false about a subject the caller can check in one command.
+  outside=$(make_home repair-suggestion-outside)
+  printf 'Captain chose the northern sample route.\n' > "$outside/decision.txt"
+  mkdir -p "$outside/data/$id"
+  tasks_in "$outside" add "$id" "Investigate the sample scope" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the out-of-scope origin"
+  write_origin_meta "$outside" "$id"
+  printf 'done: report complete\n' > "$outside/state/$id.status"
+  printf '# Sample scope review\n\nOne captain choice remains.\n' > "$outside/data/$id/report.md"
+  run_decisions "$outside" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "could not register the route hold"
+  tasks_in "$outside" update "$id-decision-route" --body "Notes rewritten out of band." >/dev/null \
+    || fail "could not replace the creation body"
+  tasks_in "$outside" "done" "$id-decision-route" >/dev/null || fail "could not close the route decision"
+
+  if run_decisions "$outside" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample \
+    > "$outside/hold.out" 2> "$outside/hold.err"; then
+    fail "hold accepted a decision closed with no captain answer"
+  fi
+  if run_decisions "$outside" answer "$id" route --decision-file "$outside/decision.txt" \
+    > "$outside/answer.out" 2> "$outside/answer.err"; then
+    fail "answer closed a decision that was already closed outside the script"
+  fi
+  for surface in hold answer; do
+    assert_no_grep "rather than a captain decision hold this script created" "$outside/$surface.err" \
+      "$surface told the caller this script never created an identity hold created"
+    assert_no_grep "no captain decision can be recorded on it" "$outside/$surface.err" \
+      "$surface said no captain decision can be recorded while repair accepts this identity"
+    assert_grep "not an identity this ledger owns as a captain decision" "$outside/$surface.err" \
+      "$surface refused without saying what the ledger actually found"
+  done
+  out=$(run_decisions "$outside" repair "$id" route --decision-file "$outside/decision.txt") \
+    || fail "repair refused an identity it accepts, so this case reproduces nothing"
+  assert_contains "$out" "repaired: $id-decision-route" "repair attested a different identity"
+  pass "no refusal suggests repair for an ordinary captain-gated thread or for one repair would refuse, and every one still does for a real decision"
+}
+
+# Breaks the identity the way the lost-provenance verdict describes: held and
+# completed through this ledger, then rewritten and closed out of band so neither
+# captain-hold signal survives.
+seed_lost_provenance_identity() {  # <home> <origin-id> <decision-key> [blocked-task]
+  local home=$1 id=$2 key=$3 blocked=${4:--} hold_id="$2-decision-$3"
+  printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample scope" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the lost-provenance origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample scope review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
+  run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+    --reason "captain $key choice pending" --repo sample >/dev/null \
+    || fail "could not register the $key hold"
+  if [ "$blocked" != - ]; then
+    tasks_in "$home" add "$blocked" "Follow the sample $key" --kind ship --repo sample >/dev/null \
+      || fail "could not create the routed follow-up work"
+    tasks_in "$home" block "$blocked" --by "$hold_id" >/dev/null \
+      || fail "could not route follow-up work behind the hold"
+  fi
+  run_decisions "$home" complete "$id" "$key" >/dev/null \
+    || fail "completion failed while the $key decision was properly held"
+  tasks_in "$home" unhold "$hold_id" >/dev/null || fail "could not clear the captain hold kind"
+  tasks_in "$home" update "$hold_id" --body "Notes rewritten out of band." >/dev/null \
+    || fail "could not replace the creation body"
+  tasks_in "$home" "done" "$hold_id" >/dev/null || fail "could not close the $key decision"
+}
+
+# Follows the lost-provenance remediation exactly as the audit prints it, taking
+# the branch this fixture is in, and asserts the finding actually ends: the audit
+# falls silent AND the origin passes `verify`, because clearing the line alone
+# would leave the recorded key stranded in the origin's inventory.
+follow_printed_lost_provenance_remediation() {  # <home> <origin-id> <decision-key> [routed-task]
+  local home=$1 id=$2 key=$3 routed=${4:--} hold_id="$2-decision-$3"
+  local anchor=" record the captain answer on it with " expect_verbs
+  local line remediation cmd prog out verbs=""
+  local -a argv
+  line=$(run_decisions "$home" audit | grep -F "$hold_id ") \
+    || fail "the audit stopped naming the decision it can no longer attest"
+  assert_contains "$line" "$anchor" \
+    "the audit printed no remediation a reader can follow to silence"
+  remediation=${line#*"$anchor"}
+  remediation=${remediation%%; raising*}
+  printf '%s\n' "$remediation" | awk '{ gsub(/, then /, "\n"); print }' > "$home/$key-steps"
+  [ "$(wc -l < "$home/$key-steps")" -eq 3 ] \
+    || fail "the printed remediation was not three steps: $remediation"
+  : > "$home/$key-remediation.sh"
+  while IFS= read -r cmd; do
+    case $cmd in
+      *", or "*)
+        assert_contains "$cmd" "fm-decision-hold.sh resolve " \
+          "the printed remediation named no routed-work command for a hold that can still block work"
+        if [ "$routed" = - ]; then
+          cmd=${cmd#*, or }
+          cmd=${cmd%% once nothing*}
+        else
+          cmd=${cmd%%, or *}
+          cmd=${cmd%% while that hold*}
+        fi
+        ;;
+    esac
+    printf '%s\n' "$cmd" >> "$home/$key-remediation.sh"
+  done < "$home/$key-steps"
+  sed -i.bak \
+    -e "s#<reason>#the captain answered this $key#" \
+    -e "s#<path>#$home/decision.txt#" \
+    -e "s#<task-id>#$routed#" \
+    "$home/$key-remediation.sh"
+  while IFS= read -r cmd; do
+    eval "argv=($cmd)"
+    prog=${argv[0]}
+    verbs="$verbs $prog:${argv[1]}"
+    case $prog in
+      tasks-axi) tasks_in "$home" "${argv[@]:1}" >/dev/null || fail "printed remediation step failed: $cmd" ;;
+      fm-decision-hold.sh) run_decisions "$home" "${argv[@]:1}" >/dev/null || fail "printed remediation step failed: $cmd" ;;
+      *) fail "the printed remediation named a program this test cannot run: $prog" ;;
+    esac
+  done < "$home/$key-remediation.sh"
+  if [ "$routed" = - ]; then
+    expect_verbs=" tasks-axi:reopen tasks-axi:hold fm-decision-hold.sh:answer"
+  else
+    expect_verbs=" tasks-axi:reopen tasks-axi:hold fm-decision-hold.sh:resolve"
+  fi
+  [ "$verbs" = "$expect_verbs" ] \
+    || fail "the printed remediation was not reopen, re-hold, close in that order:$verbs"
+
+  run_decisions "$home" verify "$id" >/dev/null \
+    || fail "the origin still cannot pass its completion gate after its own remediation was followed"
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  [ -z "$out" ] \
+    || fail "the audit still reports a defect after its own remediation was followed: $out"
+}
+
+# A remediation is worth printing only if following it exactly ends the finding.
+# So this one is followed mechanically rather than paraphrased: the commands are
+# parsed out of the audit's own line, given the substitutions an operator makes,
+# and run in the printed order, which exercises the printed path instead of the
+# code path behind it. Both branches of the last step are walked, because a hold
+# that still blocks routed work refuses `answer` and only `resolve` can close it,
+# so a line naming only `answer` would be unfollowable for exactly the decisions
+# that had follow-up work - the shape the first version of this test missed.
+test_printed_lost_provenance_remediation_clears_the_finding() {
+  local home routed
+  home=$(make_home lost-provenance-remediation)
+  seed_lost_provenance_identity "$home" sample-route-review route
+  follow_printed_lost_provenance_remediation "$home" sample-route-review route
+
+  routed=$(make_home lost-provenance-remediation-routed)
+  seed_lost_provenance_identity "$routed" sample-shape-review shape follow-sample-shape
+  follow_printed_lost_provenance_remediation "$routed" sample-shape-review shape follow-sample-shape
+  pass "following the printed lost-provenance remediation clears the finding on both its branches"
+}
+
+# Session-start bootstrap, scoped to this fixture home and kept local: the
+# DECISION_HOLD lines are the surface a real session actually reads.
+run_home_bootstrap() {  # <home>
+  local home=$1
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_CONFIG_OVERRIDE="$home/config" FM_BOOTSTRAP_DETECT_ONLY=1 \
+    FM_BOOTSTRAP_NETWORK=skip "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
+}
+
+# A tasks-axi that records every invocation before forwarding to the real one, so
+# what a caller costs is observed rather than assumed.
+install_tasks_axi_recorder() {  # <home>
+  local home=$1
+  cat > "$home/fakebin/tasks-axi" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$home/tasks-axi.log"
+exec "$TASKS_AXI_BIN" "\$@"
+EOF
+  chmod +x "$home/fakebin/tasks-axi"
+}
+
+# The audit exactly as bin/fm-bootstrap.sh's session-start sweep invokes it, with
+# the compatibility verdict handed down, so the recorded invocations are the
+# audit's own backlog reads and not a version probe.
+run_session_audit() {  # <home>
+  local home=$1
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    FM_TASKS_AXI_COMPATIBLE=1 "$ROOT/bin/fm-decision-hold.sh" audit
+}
+
+# Backlog retention is the third thing that went wrong in the original incident,
+# and it is ordinary: `.tasks.toml` keeps ten done tasks in data/backlog.md and
+# moves the rest to the archive, so a closed captain hold leaves the backlog on
+# its own schedule. A home whose decisions were every one of them answered
+# through their owner must stay silent after that happens - a detector that tells
+# every session four answered decisions are unresolved, and offers to raise them
+# again under new keys, is a detector the next agent learns to scroll past.
+test_correctly_resolved_decisions_stay_silent_after_retention_archives_them() {
+  local home id key out
+  home=$(make_home audit-archived-resolution)
+  id=sample-archive-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample archive" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the archive origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample archive review\n\nThree captain choices remain.\n' > "$home/data/$id/report.md"
+  printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
+  for key in route shape keep; do
+    run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+      --reason "captain $key choice pending" --repo sample >/dev/null \
+      || fail "could not register the $key hold"
+  done
+  run_decisions "$home" complete "$id" route shape keep >/dev/null \
+    || fail "completion failed while every decision was properly held"
+  for key in route shape keep; do
+    run_decisions "$home" answer "$id" "$key" --decision-file "$home/decision.txt" >/dev/null \
+      || fail "the captain's answer to $key could not be recorded through its owner"
+  done
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  [ -z "$out" ] || fail "audit reported a defect while every decision was answered through its owner: $out"
+
+  # Real retention, driven the way a working home drives it.
+  for key in $(seq 1 11); do
+    tasks_in "$home" add "filler-$key" "Filler $key" --kind ship --repo sample >/dev/null \
+      || fail "could not create filler task $key"
+    tasks_in "$home" "done" "filler-$key" >/dev/null || fail "could not close filler task $key"
+  done
+  assert_no_grep "$id-decision-route" "$home/data/backlog.md" \
+    "retention did not archive the answered decision, so this case reproduces nothing"
+  assert_grep "$id-decision-route" "$home/data/done-archive.md" \
+    "the answered decision left the backlog without reaching the archive"
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero after retention"
+  [ -z "$out" ] || fail "audit reported answered decisions as defects once retention archived them: $out"
+  out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
+  [ -z "$out" ] || fail "session start reported answered decisions as defects once retention archived them: $out"
+
+  # The origin's own gate is unchanged: at teardown, where an agent is present to
+  # act, an identity the backlog no longer holds is still refused.
+  if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verify stopped refusing an identity the backlog no longer holds"
+  fi
+  assert_grep "absent from" "$home/verify.err" "verify refused for some other reason than absence"
+  pass "decisions answered through their owner stay silent once retention archives them, while verify still refuses at teardown"
+}
+
+# The audit runs at every session start, so its price must not rise with the
+# number of decisions a home carries: a control that gets slower the more it
+# protects is a control someone turns off, and then it protects nothing. A home
+# whose decisions are all properly held must be answered from one backlog read,
+# not from one read per decision.
+test_audit_cost_does_not_grow_with_the_decisions_it_protects() {
+  local home id key out small large
+  home=$(make_home audit-cost)
+  id=sample-cost-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample cost" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the cost origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample cost review\n\nSeveral captain choices remain.\n' > "$home/data/$id/report.md"
+  for key in k1 k2; do
+    run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+      --reason "captain $key choice pending" --repo sample >/dev/null \
+      || fail "could not register the $key hold"
+  done
+  install_tasks_axi_recorder "$home"
+
+  : > "$home/tasks-axi.log"
+  out=$(run_session_audit "$home") || fail "audit exited nonzero on a healthy home"
+  [ -z "$out" ] || fail "audit reported a defect while every decision was properly held: $out"
+  small=$(wc -l < "$home/tasks-axi.log" | tr -d ' ')
+
+  for key in k3 k4 k5 k6; do
+    run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+      --reason "captain $key choice pending" --repo sample >/dev/null \
+      || fail "could not register the $key hold"
+  done
+  run_decisions "$home" complete "$id" k1 k2 k3 k4 k5 k6 >/dev/null \
+    || fail "completion failed while every decision was properly held"
+
+  : > "$home/tasks-axi.log"
+  out=$(run_session_audit "$home") || fail "audit exited nonzero on a larger healthy home"
+  [ -z "$out" ] || fail "audit reported a defect while six decisions were properly held: $out"
+  large=$(wc -l < "$home/tasks-axi.log" | tr -d ' ')
+
+  [ "$large" = "$small" ] \
+    || fail "session-start audit cost grew from $small to $large backlog reads when the home gained four more properly held decisions"
+  [ "$small" -le 2 ] \
+    || fail "a healthy home cost $small backlog reads, so the audit is still re-reading decisions one by one"
+
+  # The saving must come from the listing proving those decisions healthy, never
+  # from the audit having stopped looking: one wrong close is still named, and
+  # naming it is what re-reads that one record.
+  tasks_in "$home" "done" "$id-decision-k4" >/dev/null || fail "could not reproduce the direct close"
+  out=$(run_session_audit "$home") || fail "audit exited nonzero on a defective home"
+  assert_contains "$out" "$id-decision-k4 was closed outside fm-decision-hold" \
+    "the cheap listing pass skipped a decision that was closed outside its owner"
+  assert_not_contains "$out" "$id-decision-k1" \
+    "the audit reported a properly held decision as defective"
+  pass "the session-start audit costs one backlog read whatever the number of healthy decisions"
+}
+
+# A session-start line that asserts something the fields printed beside it deny
+# teaches the next agent to dismiss the whole report. This is the shape that used
+# to say a decision was "no longer actively held" while printing held=yes: a hold
+# released and then re-held for something other than the captain.
+test_audit_line_never_contradicts_the_state_it_prints() {
+  local home id out
+  home=$(make_home audit-hold-kind)
+  id=sample-rehold-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample rehold" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the rehold origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample rehold review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
+  run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "could not register the route hold"
+
+  tasks_in "$home" unhold "$id-decision-route" >/dev/null || fail "could not reproduce the unhold"
+  tasks_in "$home" hold "$id-decision-route" --reason "plain rehold" >/dev/null \
+    || fail "could not reproduce the non-captain rehold"
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  assert_contains "$out" "$id-decision-route is open in a state fm-decision-hold cannot close" \
+    "the audit stopped naming a decision that is held for something other than the captain"
+  assert_contains "$out" "held=yes" "the audit hid the held state it based the finding on"
+  assert_contains "$out" "hold_kind=" "the audit did not name the field that makes this a defect"
+  assert_not_contains "$out" "no longer actively held" \
+    "the audit claimed the decision was not held while printing that it is"
+  if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verification passed a decision that is no longer held for the captain"
+  fi
+
+  tasks_in "$home" hold "$id-decision-route" --reason "captain route choice pending" --kind captain >/dev/null \
+    || fail "the recovery this document records for a released hold did not re-activate the decision"
+  out=$(run_decisions "$home" audit)
+  [ -z "$out" ] || fail "the audit still reported the decision after the recorded recovery ran: $out"
+  pass "an audit line never denies the state it prints beside it"
+}
+
+# The open-state branch is the audit's fall-through: it fires on EVERY open state
+# a decision hold can reach, so every clause it asserts has to be true of all of
+# them. Two versions were not. The first printed `fm-decision-hold.sh hold`, which
+# for an in_flight identity applies the hold and then refuses, leaving a partially
+# mutated record. The second said the identity carried no active captain hold and
+# blocked no work, which `tasks-axi start` on a HEALTHY hold falsifies in one
+# command - tasks-axi accepts `start` on a held task, its own `ready` and `show`
+# help advertise it, the record then reads held=yes hold_kind=captain, and the
+# dependent stays blocked. That shape is the primary subject here, because a
+# regression seeded only with the released shape asserts the fix's own code path.
+# The released shape is carried alongside it so the two can be compared: the
+# verdict's prose must be identical for both, which is what stops the sentence
+# from being tuned to whichever shape someone had in mind.
+test_audit_open_state_verdict_holds_for_every_open_shape() {
+  local home id line_held line_released prose_held prose_released before after second cmd claim
+  home=$(make_home audit-open-state)
+  id=sample-inflight-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample in-flight decision" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the in-flight origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample in-flight review\n\nTwo captain choices remain.\n' > "$home/data/$id/report.md"
+  run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "could not register the route hold"
+  run_decisions "$home" hold "$id" keep --title "Choose the sample keep" \
+    --reason "captain keep choice pending" --repo sample >/dev/null \
+    || fail "could not register the keep hold"
+  run_decisions "$home" complete "$id" route keep >/dev/null \
+    || fail "completion failed while both decisions were properly held"
+  tasks_in "$home" add "$id-route-work" "Build the sample route" --kind ship --repo sample >/dev/null \
+    || fail "could not create the routed task"
+  tasks_in "$home" block "$id-route-work" --by "$id-decision-route" >/dev/null \
+    || fail "could not route work behind the decision"
+  line_held=$(run_decisions "$home" audit) || fail "audit exited nonzero on a healthy home"
+  [ -z "$line_held" ] || fail "audit reported a defect while both decisions were properly held: $line_held"
+
+  # Shape one: a decision that is still held for the captain, started in place.
+  tasks_in "$home" start "$id-decision-route" >/dev/null || fail "could not reproduce the start"
+  # Shape two: a decision released and left open, which is the shape the earlier
+  # wording was written against.
+  tasks_in "$home" unhold "$id-decision-keep" >/dev/null || fail "could not reproduce the unhold"
+
+  before=$(tasks_in "$home" show "$id-decision-route" --full)
+  line_held=$(run_decisions "$home" audit | grep -F "$id-decision-route") \
+    || fail "the audit went silent about a started captain decision"
+  line_released=$(run_decisions "$home" audit | grep -F "$id-decision-keep") \
+    || fail "the audit went silent about a released captain decision"
+  after=$(tasks_in "$home" show "$id-decision-route" --full)
+  [ "$before" = "$after" ] || fail "the audit changed the record it was asked only to report on"
+
+  # The fields the line prints are the fields the record carries, so a reader can
+  # act on them without a second lookup.
+  assert_contains "$line_held" "state=in_flight" "the audit hid the state it based the finding on"
+  assert_contains "$line_held" "held=yes" "the audit hid that the identity is still held"
+  assert_contains "$line_held" "hold_kind=captain" "the audit hid that the hold is still the captain's"
+  assert_contains "$line_released" "state=queued" "the audit misreported the released decision's state"
+  assert_contains "$line_released" "held=no" "the audit misreported the released decision's hold"
+
+  # Nothing the sentence asserts may be denied by the fields printed beside it.
+  # Each claim below is one the earlier wording made and this state falsifies.
+  for claim in "carries no active captain hold" "no longer actively held" \
+    "neither actively held" "is not held" "neither blocks work" "blocks no work"; do
+    assert_not_contains "$line_held" "$claim" \
+      "the open-state verdict denied the state it printed beside it"
+  done
+  # It really does still block work, which is why the claim above would be false.
+  assert_contains "$(tasks_in "$home" show "$id-route-work" --full)" "blocked: yes" \
+    "the routed task stopped being blocked, so this case no longer reproduces the contradiction"
+
+  # The prose is shape-independent: drop the identity and the parenthesised field
+  # group, and the two lines must be the same sentence. A verdict that reads
+  # differently for two shapes it fires on is a verdict tuned to one of them.
+  prose_held=${line_held#*), }
+  prose_released=${line_released#*), }
+  [ "$prose_held" = "$prose_released" ] \
+    || fail "the open-state verdict says different things about two shapes it fires on:"$'\n'"$prose_held"$'\n'"$prose_released"
+
+  assert_contains "$line_held" "docs/decision-hold-lifecycle.md" \
+    "the open-state verdict named no owner for the recovery it declines to print"
+  for cmd in "fm-decision-hold.sh hold" "fm-decision-hold.sh repair" "fm-decision-hold.sh answer" \
+    "fm-decision-hold.sh decline" "fm-decision-hold.sh resolve" "tasks-axi hold" "tasks-axi unhold" \
+    "tasks-axi done" "tasks-axi reopen" "tasks-axi update" "tasks-axi start"; do
+    assert_not_contains "$line_held" "$cmd" \
+      "the open-state verdict handed the reader a mutating command that cannot be right for every state it fires on"
+    assert_not_contains "$line_released" "$cmd" \
+      "the open-state verdict handed the reader a mutating command that cannot be right for every state it fires on"
+  done
+
+  if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verification passed a decision no close path in this ledger accepts"
+  fi
+
+  second=$(run_decisions "$home" audit | grep -F "$id-decision-route")
+  [ "$second" = "$line_held" ] || fail "reading the report changed what the next report says: $second"
+
+  # The recovery this document records for in_flight, run as it is written, and
+  # checked after EVERY step rather than only at the end. No step of it may close
+  # the identity: `tasks-axi done` on a captain hold is the incident this ledger
+  # exists to detect, and while the identity is closed the routed work it gates is
+  # released and `tasks-axi ready` offers it for dispatch. The dependent is read
+  # between the steps so that a close reintroduced anywhere in this walk is caught
+  # where it happens rather than hidden by whatever restores the edge afterwards.
+  tasks_in "$home" reopen "$id-decision-route" >/dev/null \
+    || fail "could not return the in-flight identity to queued"
+  assert_contains "$(tasks_in "$home" show "$id-route-work" --full)" "blocked: yes" \
+    "the recorded recovery released the captain-gated routed work while recovering the decision"
+  tasks_in "$home" hold "$id-decision-keep" --reason "captain keep choice pending" --kind captain >/dev/null \
+    || fail "the recorded recovery did not re-activate the released decision"
+  assert_contains "$(tasks_in "$home" show "$id-route-work" --full)" "blocked: yes" \
+    "the recorded recovery released the captain-gated routed work while recovering the decision"
+  line_held=$(run_decisions "$home" audit)
+  [ -z "$line_held" ] || fail "the audit still reported a decision after the recorded recovery ran: $line_held"
+  run_decisions "$home" verify "$id" >/dev/null \
+    || fail "the recovered decisions did not satisfy the completion gate"
+  pass "the audit's open-state verdict is true of every open shape, names no command, and changes nothing"
+}
+
+# An origin whose home no longer owns it by ANY of the three signals
+# `origin_exists_here` reads: no `state/<origin-id>.meta`, no
+# `data/<origin-id>/report.md`, and no row in `data/backlog.md`. Teardown alone
+# does not produce this - it removes the metadata and never touches
+# `data/<origin-id>/`, and a scout report survives it by contract - so the shape
+# belongs to an origin that has no scout report to begin with, once its metadata
+# is gone and retention has archived its backlog row. This helper builds it
+# directly, by removing the report as well, because the recovery the document
+# records has to hold for the shape rather than for the route into it: the
+# decision identity outlives all three signals, stays in scope through the
+# creation body `hold` wrote on it, and is still named at every session start,
+# while `bin/fm-decision-hold.sh hold` - which the recovery once prescribed -
+# refuses there and leaves the finding with no followable remedy.
+seed_unowned_origin_decision_identity() {  # <home> <origin-id> <decision-key> [routed-task]
+  local home=$1 id=$2 key=$3 routed=${4:--} hold_id="$2-decision-$3" filler
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample $key" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the unowned origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample %s review\n\nOne captain choice remains.\n' "$key" > "$home/data/$id/report.md"
+  run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+    --reason "captain $key choice pending" --repo sample >/dev/null \
+    || fail "could not register the $key hold"
+  if [ "$routed" != - ]; then
+    tasks_in "$home" add "$routed" "Build the sample $key" --kind ship --repo sample >/dev/null \
+      || fail "could not create the routed task"
+    tasks_in "$home" block "$routed" --by "$hold_id" >/dev/null \
+      || fail "could not route work behind the decision"
+  fi
+  run_decisions "$home" complete "$id" "$key" >/dev/null \
+    || fail "completion failed while the $key decision was properly held"
+
+  # Teardown's own removal, plus the report an origin with no scout deliverable
+  # would never have had, which is what makes all three signals absent at once.
+  rm -f "$home/state/$id.meta" "$home/state/$id.status"
+  rm -rf "$home/data/$id"
+  tasks_in "$home" "done" "$id" >/dev/null || fail "could not close the unowned origin"
+  # Real retention, driven the way a working home drives it, until the closed
+  # origin task itself is gone from data/backlog.md.
+  for filler in $(seq 1 12); do
+    tasks_in "$home" add "$id-filler-$filler" "Filler $filler" --kind ship --repo sample >/dev/null \
+      || fail "could not create filler task $filler"
+    tasks_in "$home" "done" "$id-filler-$filler" >/dev/null || fail "could not close filler task $filler"
+  done
+
+  # All three ownership signals gone, and the decision identity still there.
+  [ ! -e "$home/state/$id.meta" ] || fail "the unowned origin kept its task metadata"
+  [ ! -e "$home/data/$id/report.md" ] || fail "the unowned origin kept its report"
+  if tasks_in "$home" show "$id" >/dev/null 2>&1; then
+    fail "retention did not archive the closed origin, so the unowned shape was not reproduced"
+  fi
+  tasks_in "$home" show "$hold_id" >/dev/null 2>&1 \
+    || fail "the decision identity did not outlive its origin, so this case reproduces nothing"
+}
+
+# The recorded open-state recovery, walked on an identity whose origin this home
+# no longer owns, in the two open shapes it covers. Both halves matter. The
+# refusal is pinned so the limit the section states cannot quietly rot back into
+# a prescription, and the recovery is walked to its end rather than to the point
+# where the audit stops printing, because clearing the line without being able to
+# record the captain's answer would be a worse outcome than the finding.
+test_recorded_recovery_clears_an_unowned_origin_open_decision() {
+  local home id hold_id before after out
+  home=$(make_home unowned-released)
+  printf 'Captain chose the northern sample route.\n' > "$home/decision.txt"
+  id=sample-teardown-review
+  hold_id="$id-decision-route"
+  seed_unowned_origin_decision_identity "$home" "$id" route
+  tasks_in "$home" unhold "$hold_id" >/dev/null || fail "could not release the captain hold"
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  assert_contains "$out" "$hold_id is open in a state fm-decision-hold cannot close" \
+    "the audit stopped naming a released decision whose origin this home no longer owns"
+  assert_contains "$out" "state=queued held=no" "the audit misreported the released shape"
+
+  before=$(tasks_in "$home" show "$hold_id" --full)
+  if run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample \
+    > "$home/hold.out" 2> "$home/hold.err"; then
+    fail "hold acted on an origin this home no longer owns, so the documented limit is not what it says"
+  fi
+  assert_grep "is not owned by the active home" "$home/hold.err" \
+    "hold refused an unowned origin for some reason other than ownership"
+  after=$(tasks_in "$home" show "$hold_id" --full)
+  [ "$before" = "$after" ] || fail "the refused hold mutated the record it declined to act on"
+
+  tasks_in "$home" hold "$hold_id" --reason "captain route choice pending" --kind captain >/dev/null \
+    || fail "the recorded recovery did not restore the captain hold on an unowned-origin identity"
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero after the recorded recovery"
+  [ -z "$out" ] || fail "the audit still reports a defect after the recorded recovery ran: $out"
+  run_decisions "$home" answer "$id" route --decision-file "$home/decision.txt" >/dev/null \
+    || fail "the ledger could not record the captain answer on the identity it recovered"
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero after the captain answer"
+  [ -z "$out" ] || fail "the audit still reports a defect after the captain answer was recorded: $out"
+
+  # The in_flight shape on its own unowned origin, with routed work blocked
+  # behind the decision throughout, so a step that closed the identity to get it
+  # back to queued would be caught by the dependent rather than hidden by it.
+  home=$(make_home unowned-inflight)
+  printf 'Captain chose the northern sample shape.\n' > "$home/decision.txt"
+  id=sample-inflight-teardown
+  hold_id="$id-decision-shape"
+  seed_unowned_origin_decision_identity "$home" "$id" shape "$id-shape-work"
+  tasks_in "$home" start "$hold_id" >/dev/null || fail "could not reproduce the start"
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  assert_contains "$out" "$hold_id is open in a state fm-decision-hold cannot close" \
+    "the audit stopped naming a started decision whose origin this home no longer owns"
+  assert_contains "$out" "state=in_flight" "the audit misreported the started shape"
+
+  before=$(tasks_in "$home" show "$hold_id" --full)
+  if run_decisions "$home" hold "$id" shape --title "Choose the sample shape" \
+    --reason "captain shape choice pending" --repo sample \
+    > "$home/hold.out" 2> "$home/hold.err"; then
+    fail "hold acted on a started identity whose origin this home no longer owns"
+  fi
+  assert_grep "is not owned by the active home" "$home/hold.err" \
+    "hold refused an unowned origin for some reason other than ownership"
+  after=$(tasks_in "$home" show "$hold_id" --full)
+  [ "$before" = "$after" ] || fail "the refused hold mutated the record it declined to act on"
+
+  tasks_in "$home" reopen "$hold_id" >/dev/null \
+    || fail "the recorded recovery could not return the unowned-origin identity to queued"
+  assert_contains "$(tasks_in "$home" show "$id-shape-work" --full)" "blocked: yes" \
+    "the recorded recovery released the captain-gated routed work while recovering the decision"
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero after the recorded recovery"
+  [ -z "$out" ] || fail "the audit still reports a defect after the recorded recovery ran: $out"
+  run_decisions "$home" resolve "$id" shape --decision-file "$home/decision.txt" \
+    --routed-to "$id-shape-work" >/dev/null \
+    || fail "the ledger could not record the captain answer on the routed identity it recovered"
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero after the captain answer"
+  [ -z "$out" ] || fail "the audit still reports a defect after the captain answer was recorded: $out"
+  pass "the recorded open-state recovery is followable when the origin is no longer owned here and ends the finding"
+}
+
+# The incident, generalized: captain decisions were closed with `tasks-axi done`
+# and `tasks-axi unhold` instead of their owner, and it surfaced only because one
+# scout teardown happened to run its gate. A home that never tore that scout down
+# was wrong and did not know. This case reproduces all three wrong-close shapes,
+# proves each is named at session start, proves `hold` and `verify` now give the
+# same verdict about the same identity, proves an ordinary captain thread whose id
+# merely spells the separator is left alone, and proves the report empties only as
+# each decision is genuinely closed with the captain's word.
+test_audit_reports_decisions_closed_outside_their_owner() {
+  local home id key out
+  home=$(make_home audit-outside-owner)
+  id=sample-audit-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample audit" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the audit origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample audit review\n\nThree captain choices remain.\n' > "$home/data/$id/report.md"
+  for key in route shape keep; do
+    run_decisions "$home" hold "$id" "$key" --title "Choose the sample $key" \
+      --reason "captain $key choice pending" --repo sample >/dev/null \
+      || fail "could not register the $key hold"
+  done
+  run_decisions "$home" complete "$id" route shape keep >/dev/null \
+    || fail "completion failed while every decision was still properly held"
+
+  # An ordinary captain-gated thread whose id spells the decision separator is
+  # not a decision hold, and closing it normally must never enter this report.
+  # Both shapes of that thread are covered, because AGENTS.md section 10 puts
+  # every captain-gated thread through `tasks-axi hold --kind captain` and the
+  # report's own remediation rewrites the body of whatever it names.
+  tasks_in "$home" add capt-decision-ui-q2 "Captain thread about the sample UI" \
+    --kind captain --repo sample >/dev/null || fail "could not create the held lookalike thread"
+  tasks_in "$home" hold capt-decision-ui-q2 --reason "captain UI choice pending" --kind captain >/dev/null \
+    || fail "could not gate the lookalike thread on the captain"
+  tasks_in "$home" "done" capt-decision-ui-q2 >/dev/null || fail "could not close the held lookalike thread"
+  tasks_in "$home" add capt-decision-ui-q3 "Second captain thread about the sample UI" \
+    --kind captain --repo sample >/dev/null || fail "could not create the never-held lookalike thread"
+  tasks_in "$home" "done" capt-decision-ui-q3 >/dev/null || fail "could not close the never-held lookalike thread"
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero on a healthy home"
+  [ -z "$out" ] || fail "audit reported a defect while every decision was properly held: $out"
+
+  # 1. Reproduce all three wrong-close shapes with the exact commands used.
+  tasks_in "$home" "done" "$id-decision-route" >/dev/null || fail "could not reproduce the direct close"
+  tasks_in "$home" unhold "$id-decision-shape" >/dev/null || fail "could not reproduce the unhold"
+  tasks_in "$home" "done" "$id-decision-shape" >/dev/null || fail "could not reproduce the unheld close"
+  tasks_in "$home" unhold "$id-decision-keep" >/dev/null || fail "could not reproduce the bare unhold"
+  assert_no_grep "Resolution recorded by fm-decision-hold" "$home/data/backlog.md" \
+    "the reproduced closes must leave no durable resolution record"
+  if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verification passed decisions closed with no recorded answer"
+  fi
+
+  # 2. The audit names each one, with the remediation that actually clears it.
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero on a defective home"
+  assert_contains "$out" "$id-decision-route was closed outside fm-decision-hold" \
+    "the audit missed the decision closed with a direct done"
+  assert_contains "$out" "repair $id route --decision-file" \
+    "the audit did not print the attestation command for the direct close"
+  assert_contains "$out" "$id-decision-shape was closed outside fm-decision-hold" \
+    "the audit missed the decision that was unheld before it was closed"
+  assert_contains "$out" "repair $id shape --decision-file" \
+    "unholding a decision left it permanently unattestable"
+  assert_contains "$out" "$id-decision-keep is open in a state fm-decision-hold cannot close" \
+    "the audit missed the decision that was released without being closed"
+  assert_not_contains "$out" "capt-decision-ui-q2" \
+    "the audit reported an ordinary captain-gated thread as a decision closed outside its owner"
+  assert_not_contains "$out" "capt-decision-ui-q3" \
+    "the audit reported an ordinary captain thread that was never a decision hold"
+
+  # 3. Session start is where a home that never tears the origin down sees it.
+  out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
+  assert_contains "$out" "$id-decision-route was closed outside fm-decision-hold" \
+    "the session-start report did not carry the audit finding"
+  assert_contains "$out" "$id-decision-keep is open in a state fm-decision-hold cannot close" \
+    "the session-start report dropped a finding the audit made"
+  assert_not_contains "$out" "capt-decision-ui-q" \
+    "session start named an ordinary captain-gated thread as a wrongly closed decision"
+
+  # 4. hold and verify no longer disagree about one identity.
+  if run_decisions "$home" hold "$id" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample > "$home/rehold.out" 2> "$home/rehold.err"; then
+    fail "hold accepted a decision identity that was closed with no captain answer"
+  fi
+  assert_grep "was closed outside fm-decision-hold" "$home/rehold.err" \
+    "hold still called a wrongly closed decision durably resolved"
+  assert_no_grep "already durably resolved" "$home/rehold.err" \
+    "hold contradicted verify about the same identity"
+
+  # 5. Revert: close each decision the way its owner requires, and the report
+  #    empties exactly as that happens - never before.
+  printf 'Captain chose the northern sample route.\n' > "$home/route-decision.txt"
+  run_decisions "$home" repair "$id" route --decision-file "$home/route-decision.txt" >/dev/null \
+    || fail "repair could not attest the directly closed decision"
+  out=$(run_decisions "$home" audit)
+  assert_not_contains "$out" "$id-decision-route" "the repaired decision stayed in the report"
+  assert_contains "$out" "$id-decision-shape" "repairing one decision cleared another"
+
+  printf 'Captain chose the round sample shape.\n' > "$home/shape-decision.txt"
+  run_decisions "$home" repair "$id" shape --decision-file "$home/shape-decision.txt" >/dev/null \
+    || fail "repair could not attest the decision that was unheld before it was closed"
+  tasks_in "$home" hold "$id-decision-keep" --reason "captain keep choice pending" --kind captain >/dev/null \
+    || fail "a released decision could not be re-activated"
+  printf 'Captain chose to keep the sample.\n' > "$home/keep-decision.txt"
+  run_decisions "$home" answer "$id" keep --decision-file "$home/keep-decision.txt" >/dev/null \
+    || fail "the re-activated decision could not be answered"
+
+  out=$(run_decisions "$home" audit)
+  [ -z "$out" ] || fail "the audit still reported a defect after every decision was closed properly: $out"
+  run_decisions "$home" verify "$id" >/dev/null \
+    || fail "the repaired decisions did not satisfy the completion gate"
+  out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
+  [ -z "$out" ] || fail "session start still reported a defect after every decision was closed: $out"
+  pass "captain decisions closed outside their owner are named at session start and clear only when genuinely closed"
+}
+
+# A decision this home recorded as reviewed can be moved off kind captain out of
+# band, and then it holds nothing: the captain is not gated on it, `verify`
+# refuses it, and its origin cannot finish. Naming that is the whole reason the
+# audit reads an unfiltered backlog listing, so restoring a `--kind captain`
+# filter - which reads like a free cost win, since the listing is the candidate
+# set - would delete this detection silently. That is what this case exists to
+# make loud: it is the only regression that fails when the filter comes back.
+test_audit_names_a_reviewed_decision_moved_off_kind_captain() {
+  local home id out
+  home=$(make_home audit-kind-drift)
+  id=sample-kind-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the sample kind" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the kind-drift origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample kind review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
+  run_decisions "$home" hold "$id" shape --title "Choose the sample shape" \
+    --reason "captain shape choice pending" --repo sample >/dev/null \
+    || fail "could not register the shape hold"
+  run_decisions "$home" complete "$id" shape >/dev/null \
+    || fail "completion failed while the decision was properly held"
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero on a healthy home"
+  [ -z "$out" ] || fail "audit reported a defect while the decision was properly held: $out"
+
+  tasks_in "$home" update "$id-decision-shape" --kind ship >/dev/null \
+    || fail "could not move the reviewed decision off kind captain"
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  assert_contains "$out" "$id-decision-shape carries a reviewed captain decision identity but is kind ship" \
+    "the audit went silent about a reviewed decision that can no longer hold one"
+  out=$(run_home_bootstrap "$home" | grep '^DECISION_HOLD:' || true)
+  assert_contains "$out" "$id-decision-shape carries a reviewed captain decision identity but is kind ship" \
+    "session start did not carry the finding the audit made"
+  # The printed remediation must be the action that actually silences the line,
+  # or the agent follows it faithfully and the session start reports forever.
+  assert_contains "$out" "tasks-axi update $id-decision-shape --kind captain" \
+    "session start named no action that clears the finding it reported"
+  if run_decisions "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verification passed a reviewed decision that is no longer kind captain"
+  fi
+
+  tasks_in "$home" update "$id-decision-shape" --kind captain >/dev/null \
+    || fail "could not restore the decision to kind captain"
+  out=$(run_decisions "$home" audit)
+  [ -z "$out" ] || fail "the audit still reported the decision after its kind was restored: $out"
+  run_decisions "$home" verify "$id" >/dev/null \
+    || fail "the restored decision did not satisfy the completion gate"
+  pass "a reviewed decision moved off kind captain is named at session start and clears when its kind is restored"
+}
+
+# An origin id may spell the decision separator itself - `capt-decision-ui-q2` is
+# a real shape in this repository - and `<origin>-decision-<key>` cannot be split
+# back apart once it is joined. The audit, `hold`, and `repair` must still reach
+# one verdict about that one identity, because the audit's verdict decides whether
+# the agent attests the captain's answer or abandons the decision, and the command
+# it prints has to act on the decision it just named.
+test_audit_hold_and_repair_agree_on_a_nested_decision_origin() {
+  local home origin id out
+  home=$(make_home nested-decision-origin)
+  origin=capt-decision-ui-q2
+  id=$origin-decision-route
+  mkdir -p "$home/data/$origin"
+  tasks_in "$home" add "$origin" "Investigate the sample captain UI" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the nested-separator origin"
+  write_origin_meta "$home" "$origin"
+  printf 'done: report complete\n' > "$home/state/$origin.status"
+  printf '# Sample captain UI review\n\nOne captain choice remains.\n' > "$home/data/$origin/report.md"
+  run_decisions "$home" hold "$origin" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample >/dev/null \
+    || fail "could not register the nested-separator hold"
+  run_decisions "$home" complete "$origin" route >/dev/null \
+    || fail "completion failed while the nested-separator decision was properly held"
+
+  tasks_in "$home" unhold "$id" >/dev/null || fail "could not reproduce the unhold"
+  tasks_in "$home" "done" "$id" >/dev/null || fail "could not reproduce the unheld close"
+  if run_decisions "$home" verify "$origin" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verification passed a decision closed with no recorded answer"
+  fi
+
+  out=$(run_decisions "$home" audit) || fail "audit exited nonzero"
+  assert_contains "$out" "$id was closed outside fm-decision-hold with no captain decision recorded" \
+    "the audit told the agent to abandon a decision that is still attestable"
+  assert_contains "$out" "repair $origin route --decision-file" \
+    "the audit printed a remediation naming a different decision than the one it found"
+
+  if run_decisions "$home" hold "$origin" route --title "Choose the sample route" \
+    --reason "captain route choice pending" --repo sample > "$home/rehold.out" 2> "$home/rehold.err"; then
+    fail "hold accepted a nested-separator decision closed with no captain answer"
+  fi
+  assert_grep "repair $origin route --decision-file" "$home/rehold.err" \
+    "hold and audit gave different verdicts about one identity"
+
+  printf 'Captain chose the northern sample route.\n' > "$home/route-decision.txt"
+  out=$(run_decisions "$home" repair "$origin" route --decision-file "$home/route-decision.txt") \
+    || fail "the remediation the audit printed could not attest the decision it named"
+  assert_contains "$out" "repaired: $id" "repair attested a different identity than the audit named"
+  out=$(run_decisions "$home" audit)
+  [ -z "$out" ] || fail "the audit still reported the decision after its own remediation ran: $out"
+  run_decisions "$home" verify "$origin" >/dev/null \
+    || fail "the attested decision did not satisfy the completion gate"
+  pass "audit, hold, and repair give one verdict about an origin id that spells the decision separator"
+}
+
 # The unrouted close paths must not become a way past the gate. An unanswered
 # decision keeps blocking cleanup, and neither new path can manufacture an answer.
 test_unanswered_decision_still_blocks_completion_and_teardown() {
@@ -1263,6 +2292,16 @@ test_uninventoried_report_decision_refuses_completion
 test_scout_teardown_always_requires_inventory_verification
 test_declined_decision_closes_without_routed_work
 test_out_of_band_close_is_repairable_before_teardown
+test_no_surface_suggests_repair_for_an_ordinary_captain_thread
+test_audit_reports_decisions_closed_outside_their_owner
+test_printed_lost_provenance_remediation_clears_the_finding
+test_audit_names_a_reviewed_decision_moved_off_kind_captain
+test_audit_hold_and_repair_agree_on_a_nested_decision_origin
+test_correctly_resolved_decisions_stay_silent_after_retention_archives_them
+test_audit_cost_does_not_grow_with_the_decisions_it_protects
+test_audit_line_never_contradicts_the_state_it_prints
+test_audit_open_state_verdict_holds_for_every_open_shape
+test_recorded_recovery_clears_an_unowned_origin_open_decision
 test_unanswered_decision_still_blocks_completion_and_teardown
 test_structured_holds_survive_teardown_and_route_resolution
 test_origin_slug_validation_precedes_path_construction

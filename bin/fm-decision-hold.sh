@@ -22,6 +22,7 @@
 #     --title <title> --reason <reason> [--repo <repo>]
 #   fm-decision-hold.sh complete <origin-id> (--none | <decision-key>...)
 #   fm-decision-hold.sh verify <origin-id>
+#   fm-decision-hold.sh audit
 #   fm-decision-hold.sh resolve <origin-id> <decision-key> \
 #     --decision-file <path> --routed-to <task-id> [--routed-to <task-id>...]
 #   fm-decision-hold.sh answer <origin-id> <decision-key> --decision-file <path>
@@ -39,6 +40,53 @@
 # complete against the surviving report and holds without recreating task state.
 # `verify` is read-only and is called by scout teardown so teardown cannot erase a
 # source before this gate has succeeded.
+#
+# `audit` is the fleet-wide read-only counterpart to `verify`, and it exists
+# because `verify` only ever runs at one origin's own teardown: a home that never
+# tears that origin down was wrong and did not know. It reports every captain
+# decision identity in this home that is neither actively held nor durably
+# resolved, reading the same fields `verify` reads, so the two can never disagree
+# about one identity. `hold` reads that same signal before refusing to reuse a
+# closed identity, so a hold closed without its resolution record is named as
+# exactly that rather than reported as already resolved.
+# `audit` is a detector and not a gate: a finding names a remediation only where
+# one command is correct for every state that finding fires on and a regression
+# walks it, and otherwise names the state it read and points at
+# docs/decision-hold-lifecycle.md, which owns the per-state recovery in one place.
+# It always exits 0, and prints nothing at all when tasks-axi cannot be read, because
+# bin/fm-bootstrap.sh reports an unusable tasks-axi on its own line and prefixes
+# each of these findings as a session-start DECISION_HOLD line.
+# It judges exactly what the backlog still holds, and it says NOTHING about an
+# identity retention has already archived out of data/backlog.md. That identity
+# is not unresolved; it is unreadable, because the archive is not addressable
+# through the owner tool, and a correctly answered decision archived by ordinary
+# retention would otherwise be reported as a defect at every session start
+# forever.
+# WHAT THIS DOES NOT COVER, stated so nobody reads the guard as complete: a hold
+# closed outside its owner AND archived out of data/backlog.md before any session
+# start in this home produces no audit line, ever. That is the third failure of
+# the original incident, and this detector does not catch it once retention has
+# run. Two things narrow it without closing it. The audit runs at every session
+# start, so the window is every close that happens between one session and the
+# `done_keep` further closes that evict it, not a window someone has to remember
+# to open. And `verify` still refuses an absent identity at that origin's own
+# teardown, where an agent is present to act on it.
+# This home's recorded `decision_keys=` inventories do not extend the audit past
+# the backlog. They say which of the identities the backlog DOES hold this home
+# owns as reviewed decisions, and they carry that identity's own (origin,
+# decision key) pair. That pair, or the one the creation body `hold` wrote, is
+# the whole of the audit's scope. Nothing here re-splits the joined id, and
+# nothing enters the report on tasks-axi's `hold_kind` alone, which any
+# captain-gated thread carries: this report's remediation rewrites a task body,
+# so naming the wrong subject would manufacture a false record.
+# It runs at every session start, so its price may not rise with the number of
+# decisions a home carries: a control that gets slower the more it protects is a
+# control someone turns off. One listing call carries the fields a healthy
+# verdict needs and takes every properly held or durably resolved identity out of
+# the scan, and only what that listing cannot prove healthy is re-read from its
+# own record. The listing therefore decides what to SKIP and never what to
+# report, so its quoting and truncation can cost a confirmation call and can
+# never manufacture a finding.
 #
 # `resolve`, `answer`, and `decline` close active holds; `repair` attests a hold
 # already closed outside this script. All four paths require a non-empty captain
@@ -120,6 +168,19 @@
 # blocking teardown until `resolve` or `decline` closes it with the captain's word.
 # It also refuses an identity that does not carry surviving captain-hold
 # provenance, so an ordinary captain-kind task cannot be repaired into a decision.
+# Provenance is two signals, because an out-of-band close can erase either one on
+# its own: tasks-axi's `hold_kind`, which survives `done` but not `unhold`, and
+# the creation body `hold` itself writes, which survives `unhold`. Both are
+# written only by `hold`, so an identity this script never created still carries
+# neither and is still refused; the widened evidence base is what keeps a hold
+# that was unheld out of band from becoming permanently unattestable, and with it
+# permanently unable to pass its origin's completion gate.
+# `hold_kind` alone is enough for `repair` to ACT on an identity the caller named
+# itself, and never enough for another command to NAME that identity to the
+# caller: every refusal that would print a `repair` invocation asks
+# decision_hold_in_scope first, because a suggestion is followed. Any captain-gated
+# thread carries `hold_kind`, so a suggestion gated on it would hand the agent a
+# command that records a captain decision on work no captain ever decided.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -134,9 +195,11 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
-# shellcheck source=bin/fm-wake-lib.sh
-# shellcheck disable=SC1091
-. "$SCRIPT_DIR/fm-wake-lib.sh"
+# fm-wake-lib.sh is sourced by `complete` alone, the one command that locks task
+# metadata and appends a status transfer. It creates this home's state directory
+# at source time, so sourcing it here would make every read-only command - `audit`
+# above all, which a detect-only session start runs - create a directory it must
+# never write. bin/fm-bootstrap.sh's secondmate_sync defers it for the same reason.
 
 DECISION_META_LOCK=
 DECISION_META_LOCK_HELD=0
@@ -400,6 +463,161 @@ command_id() {
   hold_id "$1" "$2"
 }
 
+# The body `hold` writes when it creates a captain decision identity. Factored so
+# the creation record and the provenance check that reads it can never drift.
+creation_body() {  # <origin-id> <decision-key>
+  printf 'Origin: %s\nDecision key: %s\nState: awaiting captain decision.' "$1" "$2"
+}
+
+# Surviving proof that this identity really was a captain hold rather than an
+# ordinary captain-kind task. Two signals, because a close can erase either one
+# alone and both are written only by this script's own `hold`:
+#   - tasks-axi's hold_kind, which survives `done` but NOT `unhold`.
+#   - the creation body above, which survives `unhold` but not a later rewrite.
+# Widening the evidence base does not widen the gate: a captain-kind task this
+# script never created carries neither signal, so `repair` still refuses it.
+captain_hold_provenance() {  # <show-output> <origin-id> <decision-key>
+  local show=$1 origin=$2 key=$3 body
+  [ "$(show_field "$show" hold_kind)" = captain ] && return 0
+  body=$(show_field "$show" body)
+  # tasks-axi renders a multi-line body with escaped newlines, so compare against
+  # the same rendering rather than reconstructing the field boundaries here.
+  case "$body" in
+    *"Origin: $origin"*"Decision key: $key"*"State: awaiting captain decision."*) return 0 ;;
+  esac
+  return 1
+}
+
+# The (origin-id, decision-key) pair the creation body itself records, printed
+# tab-separated. This is the only signal that names a decision identity's own
+# origin and key, because `<origin>-decision-<key>` cannot be split back apart
+# when the origin id spells the separator too, and it is written by `hold` alone,
+# so an ordinary captain-kind task carries none of it and this fails.
+creation_body_identity() {  # <body>
+  local body=$1 rest origin key
+  case "$body" in
+    *'Origin: '*'\nDecision key: '*'\nState: awaiting captain decision.'*) : ;;
+    *) return 1 ;;
+  esac
+  rest=${body#*'Origin: '}
+  origin=${rest%%'\n'*}
+  rest=${rest#*'\nDecision key: '}
+  key=${rest%%'\n'*}
+  case "$origin" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  case "$key" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  printf '%s\t%s\n' "$origin" "$key"
+}
+
+# Does this home's own metadata record <decision-key> among <origin-id>'s
+# reviewed decisions? That inventory is written by `complete` and nothing else.
+inventory_records_decision() {  # <origin-id> <decision-key>
+  local meta="$STATE/$1.meta"
+  [ -f "$meta" ] || return 1
+  list_has_key "$(meta_value "$meta" decision_keys)" "$2"
+}
+
+# THE scope rule of this ledger, stated once because several surfaces must agree
+# about one identity and any second statement of it would drift. An identity is a
+# captain decision hold when this home recorded it in a `decision_keys=`
+# inventory, or when its own record still carries the creation body `hold` wrote
+# for exactly that pair. Both are written by this script alone.
+# tasks-axi's hold_kind is deliberately NOT part of it: AGENTS.md section 10
+# prescribes `tasks-axi hold <id> --kind captain` for ANY captain-gated thread,
+# so an ordinary thread whose id merely spells the decision separator carries it
+# too. Every surface that would name a state-mutating remediation asks this
+# first, because a suggested `repair` that lands on the wrong subject writes a
+# captain decision no captain gave - the refusal itself is never in question.
+decision_hold_in_scope() {  # <show-output> <origin-id> <decision-key>
+  local show=$1 origin=$2 key=$3 pair
+  if inventory_records_decision "$origin" "$key"; then
+    return 0
+  fi
+  pair=$(creation_body_identity "$(show_field "$show" body)") || return 1
+  [ "$pair" = "$origin"$'\t'"$key" ]
+}
+
+# The refusal every surface gives for an identity outside that rule. One text and
+# one owner, so two surfaces cannot describe the same identity differently, and
+# none of them names a command that would write to it. It states the two things
+# the scope rule actually tested and nothing beyond them: it does not say this
+# script never created the identity, and it does not say no captain decision can
+# ever be recorded on it, because `repair` reads a wider signal and may well
+# accept an identity this rule declines to hand a command to.
+refuse_outside_decision_scope() {  # <hold-id>
+  fail "backlog item $1 is not an identity this ledger owns as a captain decision: this home records no reviewed decision under that key, and the record does not carry the creation body hold writes, so this command offers no remediation for it"
+}
+
+# The kind-drift verdict, owned once because two surfaces print it and they must
+# never diverge about one identity. It splits on the only thing that changes what
+# the reader should do. A record that still carries a durable resolution block
+# holds an answer the captain already gave, so the remediation restores the
+# identity and never invites anyone to raise that question again - losing a
+# recorded captain decision is the harm this whole ledger exists to prevent. A
+# record with no such block is ordinary work wearing a decision identity, which
+# does want its own id. Both name the state that actually clears the finding,
+# because a remediation nobody can follow to silence leaves the line printing at
+# every session start forever.
+kind_drift_verdict() {  # <hold-id> <kind> <body>
+  local id=$1 kind=${2:--} body=$3
+  if body_has_resolution_record "$body"; then
+    printf '%s carries a captain decision that was answered and recorded, and its kind drifted to %s, which is why verify and every close path refuse it; restore the identity with tasks-axi update %s --kind captain rather than raising the decision again' \
+      "$id" "$kind" "$id"
+    return 0
+  fi
+  printf '%s carries a reviewed captain decision identity but is kind %s, so it cannot hold a captain decision; give that work its own identity and restore this one with tasks-axi update %s --kind captain' \
+    "$id" "$kind" "$id"
+}
+
+# The lost-provenance verdict, owned once for the same reason: `audit` and the
+# out-of-band close gate both print it, about the same identity, and a reader who
+# gets two answers has no way to pick. The remediation is the same-key recovery
+# because that is the only one that ends with the origin able to finish. `complete`
+# recorded this key in the origin's reviewed inventory, and `verify` reads that
+# inventory on every completion attempt, so a decision raised again under a fresh
+# key answers the captain's question while leaving the old key sitting there
+# unattestable: the finding keeps printing and the origin's completion gate keeps
+# refusing. Reopening the identity restores the row `verify` is looking for,
+# re-holding it with --kind captain restores the signal every close path checks,
+# and the closing command then writes the durable resolution block through this
+# ledger, which is what `repair` could no longer attest for it. The last step names
+# both closing commands because the identity is held again by the time the reader
+# reaches it, and `answer` refuses a hold that still blocks routed work: naming
+# only `answer` prints a sequence a routed decision cannot finish.
+lost_provenance_verdict() {  # <hold-id> <origin-id> <decision-key>
+  printf '%s was closed outside fm-decision-hold and no longer carries captain-hold provenance, so repair cannot attest it as it stands; restore this same identity and record the captain answer on it with tasks-axi reopen %s, then tasks-axi hold %s --reason "<reason>" --kind captain, then fm-decision-hold.sh resolve %s %s --decision-file <path> --routed-to <task-id> while that hold still blocks routed work, or fm-decision-hold.sh answer %s %s --decision-file <path> once nothing is blocked by it; raising the decision again under a new key strands %s in %s'"'"'s reviewed inventory with nothing able to attest it, so that origin can never pass its completion gate' \
+    "$1" "$1" "$1" "$2" "$3" "$2" "$3" "$1" "$2"
+}
+
+# The whole refusal for an identity that is closed with no resolution record,
+# owned here so the surfaces that route to it give one verdict about one
+# identity. `hold`, `answer`, and `decline` all reach it for a closed identity
+# and none of them carries its own copy of a clause about that state, and `audit`
+# prints the same verdicts in the detector's register, so one identity gets one
+# sentence across those four. `resolve` and `verify` refuse a closed identity
+# with their own wording and do not route here.
+#
+# THIS GATE IS DELIBERATELY NARROWER THAN `repair`, AND THE ASYMMETRY MUST STAY.
+# It answers "should this identity be handed a repair command", not "would repair
+# accept it": `command_repair` never asks the scope rule, and unifying the two
+# would re-open the destructive suggestion, because an ordinary captain-gated
+# thread held with `tasks-axi hold --kind captain` passes provenance and would be
+# handed a command that fabricates a resolution record on work no captain ever
+# decided. So the clauses below are repair's kind and provenance preconditions
+# PLUS a suggestion-scope rule repair does not have, and an identity the scope
+# rule declines is refused without a remediation rather than told anything about
+# what `repair` would do with it.
+# This never returns; every branch exits through fail.
+refuse_out_of_band_close() {  # <show-output> <hold-id> <origin-id> <decision-key>
+  local show=$1 id=$2 origin=$3 key=$4 kind
+  decision_hold_in_scope "$show" "$origin" "$key" || refuse_outside_decision_scope "$id"
+  kind=$(show_field "$show" kind)
+  [ "$kind" = captain ] \
+    || fail "$(kind_drift_verdict "$id" "$kind" "$(show_field "$show" body)")"
+  captain_hold_provenance "$show" "$origin" "$key" \
+    || fail "$(lost_provenance_verdict "$id" "$origin" "$key")"
+  fail "captain decision $id was closed outside fm-decision-hold with no captain decision recorded; attest the captain's answer with: fm-decision-hold.sh repair $origin $key --decision-file <path>"
+}
+
 command_hold() {
   local origin=${1:-} key=${2:-} title='' reason='' repo='' id show state kind existing_title body
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
@@ -425,7 +643,20 @@ command_hold() {
     state=$(show_field "$show" state)
     kind=$(show_field "$show" kind)
     existing_title=$(show_field "$show" title)
-    [ "$state" != "done" ] || fail "captain decision $id is already durably resolved; use a new decision key for a new decision"
+    # A closed identity is "already resolved" only on the signal verify reads.
+    # Reading state alone once let this command call a hold closed outside its
+    # owner durably resolved while verify called the same identity neither held
+    # nor resolved, and that contradiction is what made the wrong close look
+    # finished. Both refusals stand; only the diagnosis is now true. A closed
+    # identity's kind is the gate's clause to state, not this command's, so the
+    # kind test below covers only an identity that is still open.
+    if [ "$state" = "done" ]; then
+      body=$(show_field "$show" body)
+      if [ "$kind" = captain ] && body_has_resolution_record "$body"; then
+        fail "captain decision $id is already durably resolved; use a new decision key for a new decision"
+      fi
+      refuse_out_of_band_close "$show" "$id" "$origin" "$key"
+    fi
     [ "$kind" = captain ] || fail "existing backlog identity $id is not kind captain"
     [ "$existing_title" = "$title" ] || fail "existing captain hold $id has a different title"
   else
@@ -436,7 +667,7 @@ command_hold() {
     fi
     [ -n "$repo" ] || repo=firstmate
     validate_one_line repo "$repo"
-    body=$(printf 'Origin: %s\nDecision key: %s\nState: awaiting captain decision.' "$origin" "$key")
+    body=$(creation_body "$origin" "$key")
     tasks_axi add "$id" "$title" --kind captain --repo "$repo" --body "$body" >/dev/null \
       || fail "could not create captain decision item $id"
   fi
@@ -448,6 +679,8 @@ command_hold() {
 
 command_complete() {
   local origin=${1:-} meta previous='' supplied='' keys='' key status_file open raw_open key_seen=0 has_meta=0
+  # shellcheck source=bin/fm-wake-lib.sh disable=SC1091
+  . "$SCRIPT_DIR/fm-wake-lib.sh"
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   validate_slug origin-id "$origin"
   shift
@@ -554,6 +787,285 @@ EOF
   printf 'verified: %s unresolved-decision inventory\n' "$origin"
 }
 
+# Every identity this home carries, of every kind, with the extra fields a
+# healthy verdict reads. The absence of `--kind captain` here is load-bearing and
+# not an oversight: this listing is the audit's whole candidate set, so filtering
+# it to captain-kind rows would silently delete the one defect that is ABOUT the
+# kind - an identity this home recorded as a reviewed decision that is no longer
+# kind captain, which decision_defect names below. Restoring the filter looks
+# like a free cost win, and what stops it from being a silent deletion is
+# tests/fm-decision-hold-lifecycle.test.sh's
+# test_audit_names_a_reviewed_decision_moved_off_kind_captain: that identity
+# leaves the candidate set the moment the filter comes back, so the assertion
+# fails. It is the only regression that does, because every other one seeds a
+# captain-kind home.
+# This is the audit's only unconditional tasks-axi call, so a home whose
+# decisions are all properly held costs exactly one invocation rather than one
+# per decision on the session-start path. A tasks-axi that does not know
+# `--fields` degrades to the plain listing, which proves nothing healthy and
+# leaves every candidate to be confirmed against its own record.
+audit_listing() {
+  local listing
+  if listing=$(tasks_axi list --fields held,hold_kind,body 2>/dev/null); then
+    printf '%s\n' "$listing"
+    return 0
+  fi
+  tasks_axi list 2>/dev/null || true
+}
+
+# Backlog identities that carry the decision-hold separator, whatever their kind,
+# because an identity this home recorded as a decision that is no longer kind
+# captain is one of the defects worth naming. This listing is also the audit's
+# whole candidate set: an identity the backlog no longer holds is one the audit
+# says nothing about, so retention takes an archived decision out of the scan
+# instead of turning it into a permanent session-start line.
+# The listing is only a cheap prefilter whose first field is always an unquoted
+# id; every candidate is confirmed against its own record before it is reported.
+audit_backlog_identities() {  # <listing>
+  local rows=$1 row candidate
+  while IFS= read -r row; do
+    candidate=${row%%,*}
+    candidate=${candidate// /}
+    case "$candidate" in
+      *-decision-*) : ;;
+      *) continue ;;
+    esac
+    case "$candidate" in
+      *[!A-Za-z0-9._-]*) continue ;;
+    esac
+    printf '%s\n' "$candidate"
+  done <<EOF
+$rows
+EOF
+}
+
+# Identities the listing alone already proves healthy, one per line. Healthy is
+# exactly verify_hold_durable's definition read through the same fields the same
+# backlog serves to `show`, so nothing this skips is a state verify would refuse.
+#
+# The listing is trusted in ONE direction. It can take an identity out of the
+# scan, and it can never put a line into the report: everything it does not prove
+# healthy is re-read from its own record by decision_defect before anything is
+# printed, so a quoting or truncation artifact can only cost a confirmation call,
+# never manufacture a finding. Rows are split through the column order the
+# listing declares in its own header, so a quoted title can never be read as a
+# status field, and a row whose quoting never closes proves nothing. A body the
+# listing truncated cannot carry the resolution record's closing marker, so that
+# identity falls back to its own record rather than being guessed either way.
+audit_healthy_identities() {  # <listing>
+  printf '%s\n' "$1" | awk '
+    function split_row(line, out,   i, n, c, nxt, field, inq, len) {
+      n = 0; field = ""; inq = 0; len = length(line)
+      for (i = 1; i <= len; i++) {
+        c = substr(line, i, 1)
+        if (inq) {
+          if (c == "\\") {
+            nxt = substr(line, i + 1, 1)
+            if (nxt == "\"") { field = field "\""; i++ } else { field = field c }
+          } else if (c == "\"") {
+            inq = 0
+          } else {
+            field = field c
+          }
+        } else if (c == "\"") {
+          inq = 1
+        } else if (c == ",") {
+          out[++n] = field; field = ""
+        } else {
+          field = field c
+        }
+      }
+      out[++n] = field
+      return inq ? 0 : n
+    }
+    function resolved(body,   opened, closed) {
+      opened = index(body, "Resolution recorded by fm-decision-hold.")
+      closed = index(body, "Routed work:")
+      return (opened > 0 && closed > opened)
+    }
+    /^tasks\[[0-9]+\]\{.*\}:$/ {
+      spec = $0
+      sub(/^tasks\[[0-9]+\]\{/, "", spec)
+      sub(/\}:$/, "", spec)
+      ncols = split(spec, names, ",")
+      for (i = 1; i <= ncols; i++) col[names[i]] = i
+      rows = 1
+      next
+    }
+    rows && /^  / {
+      row = $0
+      sub(/^  /, "", row)
+      nf = split_row(row, f)
+      if (nf < 1) next
+      id = f[col["id"]]
+      state = f[col["state"]]
+      kind = f[col["kind"]]
+      held = f[col["held"]]
+      hold_kind = f[col["hold_kind"]]
+      if (id == "" || kind != "captain") next
+      if (state == "queued" && held == "yes" && hold_kind == "captain") { print id; next }
+      if (state == "done" && col["body"] > 0 && resolved(f[col["body"]])) print id
+      next
+    }
+    { rows = 0 }
+  '
+}
+
+# Decision identities this home already recorded as reviewed, one per line as
+# tab-separated <hold-id>, <origin-id>, <decision-key>. The pair travels with
+# the identity because joining it into an id is not reversible: an origin id may
+# spell the decision separator itself, and re-splitting would then name a
+# different origin and a different decision than the one this home recorded.
+# This inventory does not extend the scan past the backlog. It says which of the
+# identities the backlog still holds this home owns as reviewed decisions, which
+# is what admits one whose creation body a later write replaced. An identity the
+# metadata still names after retention archived it is outside the audit
+# entirely - see the header - and `verify` is the gate that refuses it.
+audit_inventory_identities() {
+  local meta origin keys key
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    origin=${meta##*/}
+    origin=${origin%.meta}
+    case "$origin" in
+      ''|*[!A-Za-z0-9._-]*) continue ;;
+    esac
+    keys=$(meta_value "$meta" decision_keys)
+    [ -n "$keys" ] || continue
+    while IFS= read -r key; do
+      [ -n "$key" ] || continue
+      case "$key" in
+        *[!A-Za-z0-9._-]*) continue ;;
+      esac
+      printf '%s-decision-%s\t%s\t%s\n' "$origin" "$key" "$origin" "$key"
+    done <<EOF
+$(printf '%s\n' "$keys" | tr ',' '\n')
+EOF
+  done
+}
+
+# Membership of one value in a newline-separated list.
+list_has_line() {  # <list> <value>
+  case $'\n'"$1"$'\n' in
+    *$'\n'"$2"$'\n'*) return 0 ;;
+  esac
+  return 1
+}
+
+# The recorded (origin-id, decision-key) pair for one identity, tab-separated,
+# from the inventory listing above.
+inventory_pair() {  # <inventory> <hold-id>
+  local inventory=$1 id=$2 row
+  while IFS= read -r row; do
+    case "$row" in
+      "$id"$'\t'*) printf '%s' "${row#*$'\t'}"; return 0 ;;
+    esac
+  done <<EOF
+$inventory
+EOF
+  return 1
+}
+
+# One identity's defect line, or nothing when it is healthy or out of scope.
+# Healthy is exactly verify_hold_durable's definition read through the same
+# fields, so this can never report a state verify accepts nor stay quiet about
+# one verify refuses. <recorded> is 1 when this home's own metadata lists the
+# identity as a reviewed decision, and <origin> and <key> are then the pair that
+# metadata recorded; otherwise they are read from the record's own creation body.
+# Neither source re-splits the joined id, so an origin id that spells the
+# decision separator gets one verdict here, from `hold`, and from `repair`.
+decision_defect() {  # <hold-id> <recorded> <origin-id> <decision-key>
+  local id=$1 recorded=$2 origin=$3 key=$4 show state held kind hold_kind body pair
+  if ! show=$(task_show "$id"); then
+    # An identity the backlog no longer holds is one this detector says nothing
+    # about, whether it left between the listing and this read or retention
+    # archived it. `verify` refuses it at that origin's teardown.
+    return 0
+  fi
+  state=$(show_field "$show" state)
+  held=$(show_field "$show" held)
+  kind=$(show_field "$show" kind)
+  hold_kind=$(show_field "$show" hold_kind)
+  body=$(show_field "$show" body)
+  if [ "$state" = queued ] && [ "$held" = yes ] && [ "$kind" = captain ] && [ "$hold_kind" = captain ]; then
+    return 0
+  fi
+  if [ "$state" = "done" ] && [ "$kind" = captain ] && body_has_resolution_record "$body"; then
+    return 0
+  fi
+  # Scope: the same two-part rule decision_hold_in_scope states for the surfaces
+  # that answer about a caller's own pair, evaluated here for a pair the scan has
+  # to find. <recorded> already settled the inventory half, so what is left is
+  # the creation body half, and it must name THIS id rather than any pair. The
+  # pair is never a re-split of the joined id. `repair` still reads the wider
+  # provenance, because there the identity is the caller's own argument rather
+  # than something this scan decided to name.
+  if [ "$recorded" != 1 ]; then
+    pair=$(creation_body_identity "$body") || return 0
+    origin=${pair%%$'\t'*}
+    key=${pair#*$'\t'}
+    [ "$(hold_id "$origin" "$key")" = "$id" ] || return 0
+  fi
+  if [ "$kind" != captain ]; then
+    printf '%s\n' "$(kind_drift_verdict "$id" "$kind" "$body")"
+    return 0
+  fi
+  if [ "$state" = "done" ]; then
+    if captain_hold_provenance "$show" "$origin" "$key"; then
+      printf '%s was closed outside fm-decision-hold with no captain decision recorded; attest the captain answer with: fm-decision-hold.sh repair %s %s --decision-file <path>\n' \
+        "$id" "$origin" "$key"
+    else
+      printf '%s\n' "$(lost_provenance_verdict "$id" "$origin" "$key")"
+    fi
+    return 0
+  fi
+  # This branch is the fall-through for EVERY open state that is not healthy, so
+  # every clause it asserts has to be true of all of them, and it names no command
+  # for the same reason. Both halves of that were learned the same way. An earlier
+  # version printed `fm-decision-hold.sh hold`, which clears a released queued
+  # identity and, for an in_flight one, applies the hold and then refuses, leaving
+  # a partially mutated record. A later one said the identity carried no active
+  # captain hold and blocked no work, which `tasks-axi start` on a healthy hold
+  # falsifies in one command: the record then reads held=yes hold_kind=captain and
+  # its dependents stay blocked. What is left is what this branch actually knows
+  # from the fields it prints - no close path in this ledger accepts the identity
+  # while it sits in that state - and the per-state recovery belongs to the
+  # document that can hold all of them at once. A verdict surface is not a repair
+  # surface, and those were always two jobs.
+  printf '%s is open in a state fm-decision-hold cannot close (state=%s held=%s hold_kind=%s), so no captain answer can be recorded on it while it stays there; the recovery for each open state is in docs/decision-hold-lifecycle.md under "Recovering an open decision hold"\n' \
+    "$id" "${state:--}" "${held:--}" "${hold_kind:--}"
+}
+
+command_audit() {
+  local id listing healthy inventory identities recorded pair origin key
+  [ "$#" -eq 0 ] || { usage >&2; exit 2; }
+  # Detect-only, and deliberately silent when the backlog cannot be read at all:
+  # bin/fm-bootstrap.sh reports an unusable tasks-axi on its own MISSING line, so
+  # this command never becomes a second place that discovers a missing tool.
+  fm_tasks_axi_compatible || return 0
+  listing=$(audit_listing)
+  healthy=$(audit_healthy_identities "$listing")
+  inventory=$(audit_inventory_identities | sed '/^$/d' | LC_ALL=C sort -u)
+  identities=$(audit_backlog_identities "$listing" | sed '/^$/d' | LC_ALL=C sort -u)
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    if list_has_line "$healthy" "$id"; then
+      continue
+    fi
+    recorded=0
+    origin=''
+    key=''
+    if pair=$(inventory_pair "$inventory" "$id"); then
+      recorded=1
+      origin=${pair%%$'\t'*}
+      key=${pair#*$'\t'}
+    fi
+    decision_defect "$id" "$recorded" "$origin" "$key"
+  done <<EOF
+$identities
+EOF
+}
+
 command_resolve() {
   local origin=${1:-} key=${2:-} decision_file='' id='' body='' routed='' routed_csv='' dep show blocked state hold_show hold_body resolution_recorded=0
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
@@ -656,8 +1168,9 @@ close_unrouted_hold() {  # <mode> <outcome-word> <origin-id> <decision-key> <fla
   fi
   hold_show=$(task_show "$id") || fail "captain hold $id is absent from $FM_HOME/data/backlog.md"
   state=$(show_field "$hold_show" state)
-  [ "$state" != "done" ] \
-    || fail "captain hold $id was closed outside fm-decision-hold; use repair to record the captain decision"
+  if [ "$state" = "done" ]; then
+    refuse_out_of_band_close "$hold_show" "$id" "$origin" "$key"
+  fi
   verify_hold_active "$id"
   hold_body=$(show_field "$hold_show" body)
   case "$hold_body" in
@@ -847,7 +1360,7 @@ command_decline() {
 }
 
 command_repair() {
-  local origin=${1:-} key=${2:-} decision_file id body show state kind hold_kind hold_body
+  local origin=${1:-} key=${2:-} decision_file id body show state kind hold_body
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   shift 2
   decision_file=$(parse_decision_only_flags "$@") || exit 2
@@ -859,19 +1372,19 @@ command_repair() {
   show=$(task_show "$id") || fail "captain decision $id is absent from $FM_HOME/data/backlog.md"
   kind=$(show_field "$show" kind)
   [ "$kind" = captain ] || fail "backlog item $id is not kind captain"
-  # tasks-axi keeps hold_kind after a close, so it is the surviving proof that
-  # this identity really was a captain hold rather than an ordinary captain-kind
-  # task that was never held for the captain at all.
-  hold_kind=$(show_field "$show" hold_kind)
-  [ "$hold_kind" = captain ] \
-    || fail "backlog item $id was never held for the captain; repair records a captain decision only on a captain hold"
   state=$(show_field "$show" state)
   hold_body=$(show_field "$show" body)
+  # The already-repaired retry is settled first, because a successful repair
+  # replaces the creation body that carried this identity's provenance. Reading
+  # provenance ahead of it would make a repair idempotent only for the holds that
+  # still had their hold_kind, which is exactly the shape repair exists for.
   if [ "$state" = "done" ] && body_has_resolution_record "$hold_body"; then
     verify_resolution_identity "$id" "$hold_body" "$DECISION_DIGEST" "$ROUTED_NONE"
     printf 'repaired: %s\n' "$id"
     return 0
   fi
+  captain_hold_provenance "$show" "$origin" "$key" \
+    || fail "backlog item $id was never held for the captain; repair records a captain decision only on a captain hold"
   [ "$state" = "done" ] \
     || fail "captain hold $id is still open (state=$state); use resolve or decline to close it with the captain's decision"
   body=$(resolution_body repaired "$ROUTED_NONE")
@@ -888,6 +1401,7 @@ case "${1:-}" in
   hold) shift; command_hold "$@" ;;
   complete) shift; command_complete "$@" ;;
   verify) shift; command_verify "$@" ;;
+  audit) shift; command_audit "$@" ;;
   resolve) shift; command_resolve "$@" ;;
   answer) shift; command_answer "$@" ;;
   answers) shift; command_answers "$@" ;;

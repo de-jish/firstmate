@@ -2,7 +2,7 @@
 name: bootstrap-diagnostics
 description: >-
   Agent-only handling playbook for session-start bootstrap diagnostics.
-  Use whenever the session-start digest's bootstrap or network-checks section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, NEEDS_GH_AUTH, TANGLE, STARTUP_MEMORY_BUDGET, CREW_DISPATCH invalid, FLEET_SYNC, NETWORK_CHECKS, PR_CHECK_MIGRATION, SECONDMATE_SYNC, SECONDMATE_LIVENESS, SECONDMATE_HANDOFF, NUDGE_SECONDMATES, or FMX - or when a standalone bin/fm-bootstrap.sh or bin/fm-startup-network.sh run prints one of those lines.
+  Use whenever the session-start digest's bootstrap or network-checks section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, NEEDS_GH_AUTH, TANGLE, SHALLOW, DECISION_HOLD, STARTUP_MEMORY_BUDGET, CREW_DISPATCH invalid, FLEET_SYNC, NETWORK_CHECKS, PR_CHECK_MIGRATION, SECONDMATE_SYNC, SECONDMATE_LIVENESS, SECONDMATE_HANDOFF, NUDGE_SECONDMATES, or FMX - or when a standalone bin/fm-bootstrap.sh or bin/fm-startup-network.sh run prints one of those lines.
   A silent bootstrap section, or a BOOTSTRAP_INFO fact, means no skill load.
 user-invocable: false
 metadata:
@@ -32,6 +32,16 @@ When any diagnostic needs captain attention, report the plain consequence and re
 - `TANGLE: <remediation>` - the primary checkout is stranded on a feature branch instead of its default branch; `AGENTS.md` section 8 explains why this guard exists and what it protects.
   The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree.
   This is the only sanctioned firstmate-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.
+- `SHALLOW: <remediation>` - the firstmate checkout is a depth-limited clone, and every worktree of it inherits that shallow object store.
+  Nothing local shows the problem: it surfaces as a validation push rejected with `shallow update not allowed`, deep inside a pipeline run, in a worktree whose occupant cannot deepen its parent checkout.
+  Run the printed `git -C <root> fetch --unshallow` before dispatching work that will push, then rerun session start to confirm it is clear.
+  Deepening is a checkout repair, so like `TANGLE:` a read-only session keeps the alarm and leaves the fetch to the session holding the fleet lock.
+- `DECISION_HOLD: <identity> <defect> [<remediation>]` - a captain decision the completion gate calls neither actively held nor durably resolved.
+  This is the same verdict the completion gate gives at that origin's teardown, surfaced at session start instead of whenever that teardown happens to run, because a home that never tears the origin down was wrong and did not know.
+  A line carries a remediation only where one command is correct for every state that line fires on, so the closed-identity findings print theirs and the open-state finding prints none: it states the state fields it read and points at `docs/decision-hold-lifecycle.md`, which owns the recovery for each open state in one place.
+  Run the remediation a line prints, and read that document for a line that prints none; never reconstruct a recovery from memory or from this page, because the recipes have one owner and it is not this skill.
+  Never close one of these by hand with `tasks-axi done` or `tasks-axi unhold`; that is the mistake this line exists to catch, and it leaves the next agent no durable record of the captain's answer.
+  Load `decision-hold-lifecycle` before recording or routing an answer, and escalate the decision itself to the captain when it was never actually answered.
 - `STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>` - the visible startup-memory budget is not a safe one-line positive decimal file; do not infer the default or propagate it.
   Correct the local primary file, then rerun session start so the normal convergence path can deliver the validated value to secondmate homes.
 - `CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>` - the optional dispatch profile file exists but failed low-cost bootstrap validation; stop profile-based dispatch, report the actionable error, and require correction of the malformed schema, unverified harness name, or invalid harness/effort pair rather than falling back around it or selecting a bad profile.
