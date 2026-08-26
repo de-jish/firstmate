@@ -416,6 +416,7 @@ else
   fi
 fi
 
+
 spawn_remote_secondmate() {
   local id=$1 remote host root home harness positional model effort backend out rc meta tmp
   local remote_backend remote_target remote_harness remote_herdr_session registry_lock remote_lock remote_generation
@@ -908,6 +909,47 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
+# Ordinary parallelism cap (AGENTS.md section 7). Concurrency past a handful of
+# lanes stops buying wall clock and starts costing supervision: every extra lane
+# is another pane to reconcile, another rebase to settle, and another chance for
+# two workers to collide on one file.
+#
+# The count is live task METADATA, not running processes, so a finished task that
+# has not been torn down still holds its slot. That is deliberate: it makes a
+# forgotten close-out visible at the moment it starts blocking new work, instead
+# of silently widening the fleet.
+#
+# Secondmates are excluded - they are persistent infrastructure, not lanes.
+#
+# This is a cap on ORDINARY dispatch, so it is overridable by an explicit choice
+# (FM_MAX_PARALLEL). It refuses rather than warns, because a warning printed into
+# a busy spawn is exactly the thing nobody reads.
+if [ "$RELAUNCH" -eq 0 ] && { [ "$KIND" = ship ] || [ "$KIND" = scout ]; }; then
+  MAX_PARALLEL=${FM_MAX_PARALLEL:-4}
+  case "$MAX_PARALLEL" in
+    ''|*[!0-9]*) echo "error: FM_MAX_PARALLEL must be a non-negative integer (got '$MAX_PARALLEL')" >&2; exit 1 ;;
+  esac
+  if [ "$MAX_PARALLEL" -gt 0 ]; then
+    LIVE_LANES=0
+    LIVE_LIST=""
+    for lane_meta in "$STATE"/*.meta; do
+      [ -e "$lane_meta" ] || continue
+      lane_id=$(basename "$lane_meta" .meta)
+      [ "$lane_id" != "$ID" ] || continue
+      lane_kind=$(fm_meta_get "$lane_meta" kind 2>/dev/null) || lane_kind=
+      case "$lane_kind" in ship|scout) ;; *) continue ;; esac
+      LIVE_LANES=$((LIVE_LANES + 1))
+      LIVE_LIST="$LIVE_LIST $lane_id"
+    done
+    if [ "$LIVE_LANES" -ge "$MAX_PARALLEL" ]; then
+      echo "error: refusing to spawn $ID: $LIVE_LANES lanes are already open and the ordinary cap is $MAX_PARALLEL" >&2
+      echo "  open:$LIVE_LIST" >&2
+      echo "  Close out a finished lane (bin/fm-teardown.sh <id>) before opening another, or" >&2
+      echo "  pass FM_MAX_PARALLEL=<n> for a deliberate, stated exception on this spawn." >&2
+      exit 1
+    fi
+  fi
+fi
 if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_CONTROL_LOCK="$STATE/.control-$ID.lock"
   control_owner=$(cat "$SPAWN_CONTROL_LOCK/pid" 2>/dev/null || true)

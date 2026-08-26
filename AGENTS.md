@@ -219,6 +219,7 @@ Record the resulting mode, tier, yolo, and the one-line reason for any deviation
 ### Parallelism and dispatch
 
 Cap ordinary parallelism at **four concurrent workers**.
+`bin/fm-spawn.sh` enforces it and refuses past the cap, naming the open lanes; `FM_MAX_PARALLEL` is the deliberate, stated exception. A finished lane keeps holding its slot until teardown, so close out promptly rather than raising the cap.
 Delegate only when work is genuinely independent; use one worker for a small indivisible task rather than splitting it.
 Before spawning parallel workers, assign non-overlapping file ownership, and keep any shared file under a single integration owner.
 

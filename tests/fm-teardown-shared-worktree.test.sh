@@ -56,9 +56,10 @@ fm_write_meta "$STATE/task-c.meta" \
   "window=firstmate:fm-task-c" "endpoint_task_id=task-c" \
   "worktree=$OTHER" "project=$TMP/proj" "kind=ship" "mode=local-only"
 out2="$TMP/out2.txt"
-rc2=0
+# This case may still refuse for unrelated reasons (there is no real endpoint
+# here); what must NOT appear is the shared-worktree refusal.
 FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$STATE" \
-  "$ROOT/bin/fm-teardown.sh" task-a --force > "$out2" 2>&1 || rc2=$?
+  "$ROOT/bin/fm-teardown.sh" task-a --force > "$out2" 2>&1 || true
 if grep -q "ALSO recorded" "$out2"; then
   fail "a distinct worktree was wrongly reported as shared (false positive)"
 fi
