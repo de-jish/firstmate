@@ -157,7 +157,13 @@ done < "$BRIEF" > "$TMP/charter.remote"
 PROJECTS_CSV=
 : > "$TMP/project.records"
 PROJECT_INDEX=0
-for project in "${PROJECT_NAMES[@]}"; do
+# `--no-projects` leaves PROJECT_NAMES empty, and on bash 3.2 - the system bash
+# on macOS - expanding an empty array under `set -u` is an "unbound variable"
+# error rather than the empty list bash 4.4+ produces. Without the `+` guard the
+# seed dies here, so a projectless remote home cannot be provisioned at all from
+# a Mac. The guard expands to nothing when the array is empty and to the quoted
+# elements otherwise, on every supported bash.
+for project in ${PROJECT_NAMES[@]+"${PROJECT_NAMES[@]}"}; do
   ORIGIN=${PROJECT_ORIGINS[$PROJECT_INDEX]}
   PROJECT_INDEX=$((PROJECT_INDEX + 1))
   MODE_LINE=$(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" "$SCRIPT_DIR/fm-project-mode.sh" "$project")
