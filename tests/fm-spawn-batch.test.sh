@@ -16,10 +16,18 @@ SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-batch)
 export FM_BACKEND=tmux
 
-# Clear ambient firstmate overrides so the behavior test owns its environment.
+# The behavior test must own its environment, so it names an empty temp home
+# rather than clearing FM_HOME. Clearing it is not neutral: fm-spawn.sh falls
+# back to the code root, so the test would read the developer's own
+# config/crew-dispatch.json and stop at the dispatch-consultation backstop long
+# before the missing-brief check these cases are about. CI has no such file and
+# would never see it, so the leak only ever breaks the local run.
+BATCH_HOME="$TMP_ROOT/home"
+mkdir -p "$BATCH_HOME"
+
 run_spawn() {
   FM_ROOT_OVERRIDE='' \
-    FM_HOME='' \
+    FM_HOME="$BATCH_HOME" \
     FM_STATE_OVERRIDE='' \
     FM_DATA_OVERRIDE='' \
     FM_PROJECTS_OVERRIDE='' \

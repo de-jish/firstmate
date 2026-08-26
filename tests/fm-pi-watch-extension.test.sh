@@ -6,6 +6,20 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-pi-watch-extension)
+
+# The extension starts every arm child with `bash -lc`, so each one pays the
+# cost of the LOGIN shell's profile. That cost belongs to whoever is running the
+# suite, not to the behavior under test: on CI it is milliseconds, while a
+# developer machine with a populated ~/.bash_profile can spend well over half a
+# second before the arm script runs at all. The readiness budgets below are
+# deliberately tiny (250ms) to keep the suite quick, so an ambient profile that
+# slow makes the child get retired mid-startup and the case reads as a
+# continuity bug that is really just the shell warming up. Pointing HOME at an
+# empty directory leaves only /etc/profile, which is cheap everywhere, and makes
+# these timings depend on the code rather than on the developer's dotfiles.
+FM_TEST_FAKE_HOME="$TMP_ROOT/fake-home"
+mkdir -p "$FM_TEST_FAKE_HOME"
+export HOME="$FM_TEST_FAKE_HOME"
 EXT="$ROOT/.pi/extensions/fm-primary-pi-watch.ts"
 # Node 24 warns when these test-only dynamic imports load tracked ESM plugins
 # from a clean checkout with no tracked .opencode/package.json. The warning is
