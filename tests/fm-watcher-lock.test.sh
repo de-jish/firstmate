@@ -191,30 +191,50 @@ test_guard_warnings() {
 }
 
 test_lock_single_winner_under_concurrency() {
-  local dir state lockdir marker i pids pid wins
+  local dir state lockdir marker tried i pids pid wins contenders
   dir=$(make_case lock-concurrency)
   state="$dir/state"
   lockdir="$state/.contend.lock"
   marker="$dir/wins"
+  tried="$dir/tried"
+  contenders=40
   : > "$marker"
+  : > "$tried"
   pids=
   i=1
-  while [ "$i" -le 40 ]; do
+  while [ "$i" -le "$contenders" ]; do
+    # The winner must still hold the lock while every other contender takes its
+    # turn, or a straggler finds a lock naming a dead pid and legitimately
+    # reclaims it - a second "winner" that proves nothing about the lock. This
+    # used to be a flat `sleep 1`, which is a bet that all 40 processes get
+    # scheduled inside one second; a loaded machine loses that bet and the suite
+    # reports a lock bug that is not there. Waiting on the recorded attempts
+    # instead makes the window last exactly as long as it has to, with a bound
+    # so a genuinely stuck contender fails the run rather than hanging it.
     FM_STATE_OVERRIDE="$state" bash -c '
       . "$1"
+      won=0
       if fm_lock_try_acquire "$2"; then
+        won=1
         printf "%s\n" "$$" >> "$3"
-        # Stay alive so the held lock names a live pid for the whole window;
-        # otherwise a late contender could legitimately reclaim a dead-pid lock.
-        sleep 1
       fi
-    ' _ "$LIB" "$lockdir" "$marker" &
+      printf "%s\n" "$$" >> "$4"
+      [ "$won" -eq 1 ] || exit 0
+      waited=0
+      while [ "$(awk "NF { c++ } END { print c + 0 }" "$4")" -lt "$5" ]; do
+        waited=$((waited + 1))
+        [ "$waited" -le 3000 ] || break
+        sleep 0.02
+      done
+    ' _ "$LIB" "$lockdir" "$marker" "$tried" "$contenders" &
     pids="$pids $!"
     i=$((i + 1))
   done
   for pid in $pids; do
     wait "$pid" 2>/dev/null || true
   done
+  [ "$(awk 'NF { c++ } END { print c + 0 }' "$tried")" -eq "$contenders" ] \
+    || fail "not every contender recorded an attempt; the single-winner check would be vacuous"
   wins=$(awk 'NF { c++ } END { print c + 0 }' "$marker")
   [ "$wins" -eq 1 ] || fail "expected exactly one lock winner under concurrency, got $wins"
   pass "concurrent fm_lock_try_acquire yields exactly one winner"

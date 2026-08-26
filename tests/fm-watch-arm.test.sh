@@ -242,7 +242,7 @@ test_attached_arm_still_fails_on_a_wake_it_did_not_deliver() {
 }
 
 test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
-  local dir home state fakebin result armout drainout status watcher_pid sequence generation decision_recovery_arm decision_successor
+  local dir home state fakebin result armout drainout status watcher_pid sequence generation decision_recovery_arm decision_successor arm_wait
   dir=$(make_case rearm-resurface)
   home="$dir/home"
   state="$dir/state"
@@ -287,7 +287,17 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   append_wake "$state" check startup-network 'check: startup-network'
 
   start_rearm_arm "$home" "$state" "$fakebin" "$armout"
-  sleep 0.25
+  # The re-arm has to EXIT once it has surfaced the durable wakes, and a flat
+  # `sleep 0.25` before checking was a bet that it gets scheduled and finishes
+  # inside a quarter second. A machine running the rest of the suite loses that
+  # bet, and an arm that had not finished STARTING was then reported as a lost
+  # wake - a lock/wake bug that is not there. Poll for the exit under a real
+  # bound instead, so this fails only when the arm genuinely stays live.
+  arm_wait=0
+  while is_live_non_zombie "$ARM_PID" && [ "$arm_wait" -lt 200 ]; do
+    arm_wait=$((arm_wait + 1))
+    sleep 0.1
+  done
   if is_live_non_zombie "$ARM_PID"; then
     # End the fixture through an ordinary actionable status transition so this
     # failing pre-fix path leaves no child behind.
