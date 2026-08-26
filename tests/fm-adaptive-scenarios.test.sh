@@ -19,6 +19,10 @@
 # The assertions that make this a guard rather than a demo are the last two per
 # scenario: the tier must still catch the injected defect, and a scenario that
 # touches a high-risk surface must still be classed comprehensive.
+#
+# The fixture check bodies below are single-quoted ON PURPOSE: $FIXROOT must
+# expand when the fixture check RUNS, not when this file writes it.
+# shellcheck disable=SC2016
 set -u
 
 # shellcheck source=tests/lib.sh

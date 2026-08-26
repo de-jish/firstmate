@@ -435,6 +435,38 @@ BACKEND=$FM_BACKEND_VALIDATED_BACKEND
 T=$FM_BACKEND_VALIDATED_TARGET
 WT=$(fm_meta_get "$META" worktree)
 PROJ=$(fm_meta_get "$META" project)
+
+# Shared-worktree refusal (kunchenguid/firstmate#3075). A pool can hand a slot to
+# a NEW task while a finished-but-not-yet-torn-down task's meta still records it.
+# Teardown then hard-resets that slot, killing the live task's processes and
+# discarding its uncommitted work - observed upstream at ~2.5 hours of work lost.
+#
+# The unlanded-work refusal below cannot catch this: it inspects THIS task's
+# branch, and the work at risk belongs to a different task entirely. So the check
+# has to be ownership, not content: if any other task's meta still records this
+# worktree, the path is not ours to reset.
+#
+# Refuse rather than skip the worktree step. A silent skip would leave the
+# operator believing cleanup completed while a leased slot stayed allocated.
+if [ -n "$WT" ]; then
+  SHARED_WITH=""
+  for other_meta in "$STATE"/*.meta; do
+    [ -e "$other_meta" ] || continue
+    other_id=$(basename "$other_meta" .meta)
+    [ "$other_id" != "$ID" ] || continue
+    [ "$(fm_meta_get "$other_meta" worktree)" = "$WT" ] || continue
+    SHARED_WITH="$SHARED_WITH $other_id"
+  done
+  if [ -n "$SHARED_WITH" ]; then
+    echo "error: refusing to tear down $ID: its recorded worktree is ALSO recorded by task(s)$SHARED_WITH" >&2
+    echo "  worktree: $WT" >&2
+    echo "  Resetting it would kill that task's processes and discard its uncommitted work." >&2
+    echo "  Confirm which task actually owns the worktree, then either tear that task down first" >&2
+    echo "  or correct the stale meta before retrying. Never bypass this with --force." >&2
+    exit 1
+  fi
+fi
+
 T_ORCA=
 [ "$BACKEND" != orca ] || T_ORCA=$T
 if [ "${FM_TEARDOWN_GUARD_DONE:-0}" != 1 ]; then
