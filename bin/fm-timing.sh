@@ -99,7 +99,13 @@ fm_timing_record() {  # <task-id> <event> [detail]
   detail=$(printf '%s' "$detail" | tr -d '\t\n' | cut -c1-64)
   now=${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}
   mono=$(fm_timing_mono 2>/dev/null || echo 0)
-  mkdir -p "$(dirname "$LOG")" 2>/dev/null || return 0
+  # Never create the log's directory. Timing is best-effort telemetry, and the
+  # last thing it records is a task's terminal boundary - which for a secondmate
+  # runs AFTER teardown removed that home, with STATE still pointing inside it.
+  # A `mkdir -p` here quietly resurrected the retired home, so teardown reported
+  # success while the directory it had just deleted was back on disk. Skipping
+  # the record instead keeps this from ever putting state back.
+  [ -d "$(dirname "$LOG")" ] || return 0
   printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$mono" "$task" "$event" "$detail" >> "$LOG" 2>/dev/null || true
   return 0
 }

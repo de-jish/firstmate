@@ -28,6 +28,18 @@ FM_TIMING_LOG=/nonexistent-dir-xyz/deep/log "$TIMING" record t1 intake >/dev/nul
   || fail "record failed when its log path was unwritable"
 pass "record never fails its caller, even on bad input or an unwritable log"
 
+# Telemetry must never put state back. A secondmate's terminal record is written
+# after teardown removed that home, with the log path still inside it, so a
+# `record` that created its own directory resurrected the retired home and left
+# teardown reporting success over a directory that was back on disk.
+GONE="$TMP/removed-home/state"
+mkdir -p "$GONE"
+rm -rf "$TMP/removed-home"
+FM_TIMING_LOG="$GONE/timing.log" "$TIMING" record t1 complete >/dev/null 2>&1 \
+  || fail "record failed when its home had already been removed"
+[ ! -e "$TMP/removed-home" ] || fail "record recreated a removed home directory"
+pass "record never recreates a directory a lifecycle step removed"
+
 # --- disabled writes nothing --------------------------------------------------
 rm -f "$LOG"
 FM_TIMING=off "$TIMING" record t1 intake >/dev/null 2>&1
