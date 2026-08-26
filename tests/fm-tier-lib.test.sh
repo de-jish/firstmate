@@ -109,4 +109,24 @@ for t in fast standard comprehensive; do
 done
 pass "no tier authorizes a generic find-anything-wrong review"
 
+# --- adaptive is a valid REGISTRY posture, and ranks as its default tier -------
+# The registry never carries a tier (that is per task), so a bare `adaptive`
+# posture must still resolve and must still have a comparable rigor - otherwise
+# the spawn-time deviation notice silently switches off for every
+# adaptive-registered project.
+REG="$(dirname "${BASH_SOURCE[0]}")/../bin/fm-project-mode.sh"
+regdir=$(mktemp -d); mkdir -p "$regdir/data"
+cat > "$regdir/data/projects.md" <<'REGEOF'
+# Projects
+
+- adaptiveproj [adaptive +yolo] - a project registered adaptive (added 2026-08-20)
+- pipelineproj [no-mistakes] - unchanged (added 2026-08-20)
+REGEOF
+got=$(FM_DATA_OVERRIDE="$regdir/data" "$REG" adaptiveproj 2>/dev/null)
+[ "$got" = "adaptive on" ] || fail "an adaptive registry posture resolved as '$got', expected 'adaptive on'"
+got=$(FM_DATA_OVERRIDE="$regdir/data" "$REG" pipelineproj 2>/dev/null)
+[ "$got" = "no-mistakes off" ] || fail "an existing posture changed: got '$got'"
+rm -rf "$regdir"
+pass "adaptive is a valid registry posture and existing postures are unchanged"
+
 echo "fm-tier-lib.test.sh: all assertions passed"

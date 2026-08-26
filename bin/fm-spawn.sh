@@ -1710,6 +1710,13 @@ delivery_rigor_rank() {  # <mode> [<tier>] -> 3 (most rigor) .. 1 (least); 0 = n
   # adaptive has no single rigor: its tier IS its rigor, so it ranks by tier.
   # That keeps the "less rigor than the captain's standing posture" notice
   # meaningful instead of letting every adaptive task read as one fixed level.
+  #
+  # A BARE `adaptive` (no tier) is the REGISTRY posture, which never carries a
+  # tier because the tier is decided per task. It ranks as `standard`, the tier
+  # unknown ordinary work resolves to, so the standing posture still has a
+  # comparable rigor. Ranking it 0 instead would silently disable the
+  # deviation notice for every adaptive-registered project - a task shipping
+  # local-only under an adaptive posture would pass unremarked.
   case "$1" in
     no-mistakes) echo 3 ;;
     direct-PR) echo 2 ;;
@@ -1717,8 +1724,8 @@ delivery_rigor_rank() {  # <mode> [<tier>] -> 3 (most rigor) .. 1 (least); 0 = n
     adaptive)
       case "${2:-}" in
         comprehensive) echo 3 ;;
-        standard) echo 2 ;;
         fast) echo 1 ;;
+        standard|'') echo 2 ;;
         *) echo 0 ;;
       esac
       ;;

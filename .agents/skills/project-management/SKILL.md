@@ -41,6 +41,7 @@ Choose that posture when adding or creating the project:
 - `no-mistakes` runs the full validation pipeline before a PR.
 - `direct-PR` pushes and opens a PR without the no-mistakes pipeline.
 - `local-only` has no required remote or PR and lands only through the approved guarded fast-forward path, which stays local unless the approval is an explicit direct default-branch push.
+- `adaptive` carries a validation TIER per task instead of one uniform pipeline: firstmate classifies each task fast, standard, or comprehensive at intake (`bin/fm-tier-lib.sh` owns the tier set and each tier's check plan) and states the tier and its reason. The registry never carries a tier, because the tier is a per-task decision. Mechanically it behaves like `direct-PR`: an `origin` remote is expected and no-mistakes initialization is skipped, since it does not drive that pipeline.
 - `no-mistakes-prod-only` is a conditional policy rather than one flat mode: genuinely internal-only tooling, automation, contributor or operator process, and release or submission work ships `direct-PR`, while product-facing, mixed, and uncertain work ships `no-mistakes`.
 
 `no-mistakes-prod-only` is the default for a newly added or created remote-backed project when the captain specifies nothing, and a project with no remote defaults to `local-only`.
@@ -58,6 +59,7 @@ Confirm the source URL, local project name, delivery posture, and autonomy postu
 Clone into `projects/<name>` and add the registry entry only after the destination is known to be unused.
 A `no-mistakes` or `no-mistakes-prod-only` project must have an `origin` remote and must complete the initialization procedure below, because a conditional policy's product-facing work runs the pipeline while its internal-only work still takes the direct PR.
 A `direct-PR` project needs an `origin` remote but skips no-mistakes initialization.
+An `adaptive` project has the same requirement for the same reason.
 A `local-only` project may have no remote and skips no-mistakes initialization.
 
 ## Create a project

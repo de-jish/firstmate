@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Resolve a project's REGISTERED delivery posture from the data/projects.md registry.
 # Prints two words to stdout: "<mode> <yolo>" where mode is one of
-# no-mistakes|direct-PR|local-only and yolo is on|off.
+# no-mistakes|direct-PR|local-only|adaptive and yolo is on|off.
 #
 # MECHANICAL CONSUMERS ONLY. This answers "what posture did the captain register
 # for this project", never "how does this task ship". A task's delivery mode and
@@ -20,6 +20,16 @@
 #   no-mistakes            full pipeline -> PR -> configured merge authority (default)
 #   direct-PR              push + PR via gh-axi, no pipeline
 #   local-only             worker stays local; firstmate owns the guarded landing and any explicit direct push
+#   adaptive               proportional validation: firstmate classifies each task
+#                          into a validation TIER at intake (bin/fm-tier-lib.sh
+#                          owns the tier set and each tier's check plan) instead
+#                          of running one uniform pipeline for every change. Like
+#                          no-mistakes-prod-only this registers a POSTURE, not a
+#                          complete task contract - the tier is per task, so the
+#                          registry never carries one.
+#                          Mechanically it behaves like direct-PR: the clone is
+#                          remote-backed and syncs normally, and it needs no
+#                          no-mistakes init because it does not drive that pipeline.
 #   no-mistakes-prod-only  a conditional policy, not a task mode: firstmate
 #                          classifies each task's surface at intake (the
 #                          project-management skill owns that classification).
@@ -81,7 +91,7 @@ fi
 mode=${parsed%% *}
 yolo=${parsed##* }
 case "$mode" in
-  no-mistakes|direct-PR|local-only|no-mistakes-prod-only) ;;
+  no-mistakes|direct-PR|local-only|adaptive|no-mistakes-prod-only) ;;
   *) echo "warn: unknown mode \"$mode\" for $NAME; defaulting to no-mistakes off" >&2; mode=no-mistakes; yolo=off ;;
 esac
 case "$yolo" in on|off) ;; *) yolo=off ;; esac
