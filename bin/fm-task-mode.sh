@@ -2,6 +2,7 @@
 # Change one live ship task's delivery mode and notify its worker with the
 # canonical operational consequence.
 # Usage: fm-task-mode.sh <task-id> <no-mistakes|direct-PR|local-only>
+#        fm-task-mode.sh <task-id> adaptive <fast|standard|comprehensive>
 #
 # The task's state/<id>.meta record is the durable current-mode authority.
 # A successful transition rewrites its one mode= line atomically, appends a
@@ -22,6 +23,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-delivery-mode-lib.sh
 . "$SCRIPT_DIR/fm-delivery-mode-lib.sh"
+# shellcheck source=bin/fm-tier-lib.sh
+. "$SCRIPT_DIR/fm-tier-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -29,14 +32,24 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 fm_refuse_if_gate_agent
 
-[ "$#" -eq 2 ] || {
+[ "$#" -eq 2 ] || [ "$#" -eq 3 ] || {
   echo "usage: fm-task-mode.sh <task-id> <no-mistakes|direct-PR|local-only>" >&2
+  echo "       fm-task-mode.sh <task-id> adaptive <fast|standard|comprehensive>" >&2
   exit 2
 }
 ID=$1
 MODE=$2
+TIER=${3:-}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
 fm_delivery_mode_validate "$MODE"
+# Moving a live task onto adaptive requires its tier in the same call: a mode
+# change that left the tier unstated would hand the worker a contract with no
+# check plan attached.
+if [ "$MODE" = adaptive ]; then
+  fm_tier_validate "$TIER" "for a live change to adaptive" || exit 2
+else
+  [ -z "$TIER" ] || { echo "error: a validation tier applies only to mode adaptive" >&2; exit 2; }
+fi
 
 "$SCRIPT_DIR/fm-guard.sh" || true
 [ -d "$STATE" ] || { echo "error: state dir not found: $STATE" >&2; exit 1; }
@@ -74,6 +87,7 @@ fi
 TMP="$STATE/.$ID.meta.mode.${BASHPID:-$$}"
 grep -v '^mode=' "$META" > "$TMP"
 printf 'mode=%s\n' "$MODE" >> "$TMP"
+[ -z "$TIER" ] || printf 'tier=%s\n' "$TIER" >> "$TMP"
 mv "$TMP" "$META"
 TMP=
 fm_lock_release "$META_LOCK"
@@ -90,6 +104,9 @@ case "$MODE" in
     ;;
   no-mistakes)
     CONSEQUENCE="After a clean commit on fm/$ID, report done and wait for firstmate to invoke the no-mistakes validation path; do not push or open a PR yourself and never merge a PR."
+    ;;
+  adaptive)
+    CONSEQUENCE="After a clean commit on fm/$ID, run ONLY the validation this tier authorizes, then stop. $(fm_tier_checks "$TIER") You get ONE automatic repair attempt; on a second failure append blocked: and wait. Never merge a PR."
     ;;
 esac
 MESSAGE="Delivery mode changed from $OLD_MODE to $MODE and is recorded in task metadata. This supersedes the initial delivery section in your brief. $CONSEQUENCE"

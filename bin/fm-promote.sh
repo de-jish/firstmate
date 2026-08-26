@@ -13,6 +13,7 @@
 # captain's standing posture as context, and this script never looks it up.
 # no-mistakes-prod-only is a registry policy rather than a task mode and is refused.
 # Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off>
+#        fm-promote.sh <task-id> --mode adaptive --tier <fast|standard|comprehensive> --yolo <on|off>
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,12 +25,16 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-delivery-mode-lib.sh
 . "$SCRIPT_DIR/fm-delivery-mode-lib.sh"
+# shellcheck source=bin/fm-tier-lib.sh
+. "$SCRIPT_DIR/fm-tier-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
 MODE=
+TIER=
 YOLO=
 MODE_SET=0
+TIER_SET=0
 YOLO_SET=0
 POS=()
 want_value=
@@ -40,6 +45,7 @@ for a in "$@"; do
     esac
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
+      tier) TIER=$a; TIER_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
     esac
     want_value=
@@ -48,6 +54,8 @@ for a in "$@"; do
   case "$a" in
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
+    --tier) want_value=tier ;;
+    --tier=*) TIER=${a#--tier=}; TIER_SET=1 ;;
     --yolo) want_value=yolo ;;
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
     *) POS+=("$a") ;;
@@ -64,6 +72,20 @@ done
   exit 1
 }
 fm_delivery_mode_validate "$MODE"
+# A promoted adaptive task carries a tier exactly like a fresh one: the scout's
+# findings are what make the tier decidable, so this is the right moment to set it.
+if [ "$MODE" = adaptive ]; then
+  [ "$TIER_SET" -eq 1 ] || {
+    echo "error: --mode adaptive requires --tier <fast|standard|comprehensive>; classify from the scout's findings (bin/fm-tier-lib.sh classify \"<description>\")" >&2
+    exit 1
+  }
+  fm_tier_validate "$TIER" || exit 1
+else
+  [ "$TIER_SET" -eq 0 ] || {
+    echo "error: --tier applies only to --mode adaptive" >&2
+    exit 1
+  }
+fi
 case "$YOLO" in
   on|off) ;;
   *) echo "error: --yolo must be on or off (got '$YOLO')" >&2; exit 1 ;;
@@ -109,6 +131,7 @@ grep -v -e '^kind=' -e '^mode=' -e '^yolo=' "$META" > "$TMP"
 {
   echo "kind=ship"
   echo "mode=$MODE"
+  [ -z "$TIER" ] || echo "tier=$TIER"
   echo "yolo=$YOLO"
 } >> "$TMP"
 mv "$TMP" "$META"
@@ -117,5 +140,5 @@ fm_lock_release "$META_LOCK"
 META_LOCK_HELD=0
 
 HOME_Q=$(printf '%q' "$FM_HOME")
-echo "promoted $ID to ship mode=$MODE yolo=$YOLO (teardown protection restored)"
+echo "promoted $ID to ship mode=$MODE${TIER:+ tier=$TIER} yolo=$YOLO (teardown protection restored)"
 echo "next: FM_HOME=$HOME_Q bin/fm-send.sh fm-$ID '<ship instructions for mode=$MODE: review scratch state with git status and git log; reset to a clean default-branch base; carry over only intended fix changes; create branch fm/$ID; implement; report done>'"
