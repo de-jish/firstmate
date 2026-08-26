@@ -27,6 +27,18 @@
 # and no fast/standard signal can override it. That asymmetry is deliberate:
 # misclassifying downward risks shipping an unvalidated auth change, while
 # misclassifying upward only costs time.
+#
+# KNOWN LIMIT - classify from SCOPE, not from a title. This matcher reads text,
+# so it only sees the risk a description names. Retro-classifying twelve real
+# shipped tasks by PR title alone put 11 of 12 at `standard`, and one of those
+# ("reclaim orphaned user-scores bytes in the owner's own session") is an object
+# ownership boundary that the title simply does not mention. The classifier is a
+# HELPER for firstmate's judgement, never a replacement for it: firstmate
+# classifies from what the change actually touches and states the tier and its
+# reason. The generated brief carries the second half of that safety net - a
+# worker who finds the tier wrong for what it actually found must stop and
+# escalate `needs-decision: tier looks wrong`, because re-classifying is
+# firstmate's call, not the worker's.
 
 # Closed set of validation tiers, strongest last.
 FM_TIERS='fast standard comprehensive'
@@ -64,7 +76,7 @@ fm_tier_rank() {  # <tier>
 # secrets, destructive operations, and deployment infrastructure.
 fm_tier_risk_pattern() {
   cat <<'PAT'
-auth|authn|authz|authenticat|authoriz|login|signin|sign-in|oauth|session token|jwt|bearer
+auth|authn|authz|authenticat|authoriz|login|signin|sign-in|oauth|session token|jwt|bearer|identity|account link|account merge|impersonat
 rls|row.level.security|permission|privilege|access control|acl|policy boundary|tenant
 privacy|pii|personal data|gdpr|ccpa|consent|telemetry|analytics collection|data retention
 migration|schema change|alter table|drop table|drop column|backfill

@@ -183,6 +183,34 @@ long validation call and ending the turn leaves nobody listening when it
 returns, and a parked worker never needs to self-poll because a steer is
 delivered into its composer and wakes it.
 
+## Known limit: classification reads text
+
+Retro-classifying the twelve measured tasks by PR title alone gives 11
+`standard`, 1 `comprehensive`, 0 `fast`.
+
+At least one of those 11 is wrong on the merits: `cd-user-scores-orphans-r20`
+reclaims object bytes on an ownership boundary, and its audit found it needed
+clock anchoring and ownership gates - but its title names no risk surface, so a
+text matcher cannot see it. (`reclaim-identity-pin-r59` was a second miss until
+`identity` was added to the authorization surface.)
+
+The conclusion is not that the classifier should be more aggressive - widening
+the patterns until they catch that case would misclassify ordinary work upward
+and give back the cost this change exists to remove. The conclusion is that
+**firstmate classifies from the change's actual scope and the classifier is a
+helper**, which is what AGENTS.md section 7 says.
+
+Two things carry the residual risk:
+
+- firstmate states the tier and its reason in one sentence, so a wrong call is
+  visible to the captain at intake rather than after the fact;
+- the generated brief requires a worker that finds the tier wrong for what it
+  actually found to stop and escalate `needs-decision: tier looks wrong`, since
+  re-classifying is firstmate's call rather than the worker's.
+
+That the fast tier never fires on this population is also worth stating plainly:
+on iMeetStand's real work, `standard` is the common case and `fast` is rare.
+
 ## Collecting a real before-and-after
 
 The validation-cost number above is measured. The wall-clock number is not, and

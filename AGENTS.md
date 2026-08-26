@@ -213,6 +213,7 @@ The four modes are `no-mistakes`, `direct-PR`, `local-only`, and `adaptive`.
 - **comprehensive** - only for explicit high-risk surfaces: authentication or authorization, RLS or permission boundaries, privacy collection or disclosure, database migrations, payments, secrets, destructive operations, deployment infrastructure, or an explicit captain request. Run only the comprehensive checks **relevant to the risk actually touched**; comprehensive must never mean every device, every package, and every end-to-end test.
 
 Classification is fail-safe-upward: any high-risk surface forces comprehensive and no fast-looking signal can talk it down, while unknown ordinary work resolves to standard rather than comprehensive.
+**Classify from what the change actually touches, not from its title.** The classifier reads text and can only see the risk a description names; retro-classifying twelve real shipped tasks by title alone missed an object-ownership boundary whose title never mentioned one. Treat it as a helper for your judgement, never a replacement for it.
 **State the selected tier and its reason in one sentence to the captain.** The captain may override it explicitly.
 Record the resulting mode, tier, yolo, and the one-line reason for any deviation in the backlog item note.
 
