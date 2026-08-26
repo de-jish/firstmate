@@ -15,8 +15,53 @@ FM_LOCK_STALE_AFTER="${FM_LOCK_STALE_AFTER:-2}"
 _FM_UNAME=$(uname 2>/dev/null || echo unknown)
 mkdir -p "$STATE"
 
+# fm_frame_pid sets FM_FRAME_PID to the pid of the frame that CALLS it, which is
+# what every self-ownership test below actually needs: "is the recorded holder
+# this very frame?"
+#
+# BASHPID answers that directly, but it only exists from bash 4.0. bash 3.2 is
+# the system bash on macOS, and there the old `${BASHPID:-$$}` fallback yielded
+# the SHELL's pid - identical in a subshell, in its parent, and in every one of
+# its concurrent siblings. Every lock in this library then read a sibling as the
+# frame already holding it and reclaimed a LIVE hold instead of waiting, so
+# `resolver & resolver & ...` all entered the same critical section. Both halves
+# are pinned by regression tests: tests/fm-wake-queue.test.sh for the
+# parent/subshell case and tests/fm-pending-reply.test.sh for concurrent
+# siblings.
+#
+# Where BASHPID is missing, `$(exec sh -c 'echo $PPID')` recovers the same
+# answer: the substitution forks a child of THIS frame, exec replaces it with
+# sh, and sh's parent is therefore this frame. The value is a real pid, so
+# fm_pid_alive and every other liveness reader keep working unchanged.
+#
+# The result is cached per frame rather than per call, because these run inside
+# 0.2s confirm and 0.5s attach polls where an extra fork is a measurable cost. A
+# subshell inherits the cache from its parent but always at a LOWER
+# BASH_SUBSHELL depth than its own, so the depth check misses and it recomputes;
+# siblings never see each other's cache at all, since they do not share memory.
+#
+# Callers must invoke this as a plain command and then read FM_FRAME_PID. Do not
+# wrap it in `$(...)`: that would fork a frame of its own and report that one.
+fm_frame_pid() {
+  if [ -n "${BASHPID:-}" ]; then
+    FM_FRAME_PID=$BASHPID
+    return 0
+  fi
+  if [ "${_FM_FRAME_PID_DEPTH:-}" = "$BASH_SUBSHELL" ] && [ -n "${_FM_FRAME_PID:-}" ]; then
+    FM_FRAME_PID=$_FM_FRAME_PID
+    return 0
+  fi
+  _FM_FRAME_PID=$(exec sh -c 'echo $PPID' 2>/dev/null) || _FM_FRAME_PID=
+  case "${_FM_FRAME_PID:-}" in
+    ''|*[!0-9]*) _FM_FRAME_PID=$$ ;;
+  esac
+  _FM_FRAME_PID_DEPTH=$BASH_SUBSHELL
+  FM_FRAME_PID=$_FM_FRAME_PID
+}
+
 fm_current_pid() {
-  printf '%s\n' "${BASHPID:-$$}"
+  fm_frame_pid
+  printf '%s\n' "$FM_FRAME_PID"
 }
 
 fm_pid_alive() {
@@ -302,7 +347,8 @@ fm_lock_set_role() {
     autoarm|terminal-check) : ;;
     *) return 1 ;;
   esac
-  current=${BASHPID:-$$}
+  fm_frame_pid
+  current=$FM_FRAME_PID
   pid=$(cat "$lockdir/pid" 2>/dev/null || true)
   [ "$pid" = "$current" ] || return 1
   printf '%s\n' "$role" > "$lockdir/role" 2>/dev/null || return 1
@@ -330,7 +376,8 @@ fm_lock_owner_dir() {
 
 fm_lock_prepare_owner() {
   local ownerdir=$1 mypid back
-  mypid=${BASHPID:-$$}
+  fm_frame_pid
+  mypid=$FM_FRAME_PID
   printf '%s\n' "$mypid" > "$ownerdir/pid" 2>/dev/null || return 1
   back=$(cat "$ownerdir/pid" 2>/dev/null || true)
   [ "$back" = "$mypid" ]
@@ -379,7 +426,8 @@ fm_lock_claim_blocked_by_steal() {
 
 fm_lock_claim() {
   local lockdir=$1 ownerdir=$2 allowed_steal_owner=${3:-} mypid back
-  mypid=${BASHPID:-$$}
+  fm_frame_pid
+  mypid=$FM_FRAME_PID
   if ! { printf '%s\n' "$mypid" > "$ownerdir/pid"; } 2>/dev/null; then
     fm_lock_discard_owner "$ownerdir"
     return 1
@@ -733,10 +781,11 @@ fm_lock_try_acquire() {
     return 0
   fi
 
-  # Compare against ${BASHPID:-$$} inline, never via a command substitution:
-  # $() forks a subshell whose BASHPID is not this frame's pid.
+  # fm_frame_pid resolves THIS frame's own pid on every supported bash; see its
+  # definition for why comparing a bare $$ is wrong on bash 3.2.
+  fm_frame_pid
   pid=$(cat "$lockdir/pid" 2>/dev/null || true)
-  if [ -n "$pid" ] && [ "$pid" = "${BASHPID:-$$}" ]; then
+  if [ -n "$pid" ] && [ "$pid" = "$FM_FRAME_PID" ]; then
     # The recorded holder is THIS very process. Single-threaded bash can only
     # observe that when an interrupting trap abandoned the frame that held the
     # lock mid-critical-section (e.g. TERM inside a recovery-marker section,
@@ -833,7 +882,8 @@ fm_lock_acquire_wait() {
 
 fm_lock_release() {
   local lockdir=$1 pid current ownerdir
-  current=${BASHPID:-$$}
+  fm_frame_pid
+  current=$FM_FRAME_PID
   if [ -L "$lockdir" ]; then
     ownerdir=$(fm_lock_link_owner "$lockdir" 2>/dev/null || true)
     [ -n "$ownerdir" ] || return 0
@@ -895,7 +945,8 @@ fm_failure_episode_reset() {
       acquired=1
       ;;
     held)
-      current=${BASHPID:-$$}
+      fm_frame_pid
+      current=$FM_FRAME_PID
       pid=$(cat "$lock/pid" 2>/dev/null || true)
       [ "$pid" = "$current" ] || return 1
       ;;
