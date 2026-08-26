@@ -7,6 +7,7 @@
 # when the task genuinely deviates (e.g. working an existing external PR instead
 # of shipping a new one).
 # Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
+#        fm-brief.sh <task-id> <repo-name> --mode adaptive --tier <fast|standard|comprehensive> [--herdr-lab]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
@@ -36,6 +37,11 @@
 #   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
 #                the configured merge authority approves, then firstmate lands locally
 #                and may explicitly push the default branch without a PR
+#   adaptive     implement, then run ONLY the validation its --tier authorizes
+#                (bin/fm-tier-lib.sh owns each tier's check plan), one automatic
+#                repair attempt, then PR (or, at the fast tier, a clean branch when
+#                the project needs no PR) -> configured merge authority.
+#                --tier is REQUIRED here and refused on every other mode.
 # no-mistakes-prod-only is a registry policy, not a task mode; resolve it to one of
 # the three concrete modes at intake before calling this script.
 # The generated ship brief records the initial mode as a fixed machine-readable
@@ -64,6 +70,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=bin/fm-delivery-mode-lib.sh
 . "$SCRIPT_DIR/fm-delivery-mode-lib.sh"
+# shellcheck source=bin/fm-tier-lib.sh
+. "$SCRIPT_DIR/fm-tier-lib.sh"
 
 usage() {
   awk '
@@ -112,6 +120,8 @@ HERDR_LAB=0
 NO_PROJECTS=0
 MODE=
 MODE_SET=0
+TIER=
+TIER_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -121,6 +131,7 @@ for a in "$@"; do
     esac
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
+      tier) TIER=$a; TIER_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -133,6 +144,8 @@ for a in "$@"; do
     --no-projects) NO_PROJECTS=1 ;;
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
+    --tier) want_value=tier ;;
+    --tier=*) TIER=${a#--tier=}; TIER_SET=1 ;;
     # yolo never reaches the worker: it is firstmate's approval authority, not a
     # brief input. Refuse it loudly so it is never silently dropped here and then
     # believed to have been recorded.
@@ -146,12 +159,26 @@ done
 # missing or invalid value stops the scaffold rather than silently defaulting.
 if [ "$KIND" = ship ]; then
   [ "$MODE_SET" -eq 1 ] || {
-    echo "error: ship briefs require --mode <no-mistakes|direct-PR|local-only>; resolve it at intake from the captain's instruction and the project's registered posture in data/projects.md" >&2
+    echo "error: ship briefs require --mode <no-mistakes|direct-PR|local-only|adaptive>; resolve it at intake from the captain's instruction and the project's registered posture in data/projects.md" >&2
     exit 1
   }
   fm_delivery_mode_validate "$MODE" "at intake"
 elif [ "$MODE_SET" -eq 1 ]; then
   echo "error: --mode applies only to ship briefs; a scout delivers a report and a secondmate charter is not a delivery contract" >&2
+  exit 1
+fi
+
+# The validation tier belongs to adaptive mode alone. It is required there (the
+# brief cannot guess how much validation a change earns) and refused elsewhere,
+# so a tier can never sit unread beside a mode that ignores it.
+if [ "$MODE" = adaptive ]; then
+  [ "$TIER_SET" -eq 1 ] || {
+    echo "error: mode=adaptive requires --tier <fast|standard|comprehensive>; classify the task at intake (bin/fm-tier-lib.sh classify \"<description>\") and state the tier and reason to the captain" >&2
+    exit 1
+  }
+  fm_tier_validate "$TIER" "at intake"
+elif [ "$TIER_SET" -eq 1 ]; then
+  echo "error: --tier applies only to --mode adaptive; the other delivery modes carry their own fixed validation contract" >&2
   exit 1
 fi
 ID=${POS[0]}
@@ -335,6 +362,10 @@ The report is the only thing that survives, so anything worth keeping must be in
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+8. **While parked or waiting, park SILENTLY.** Do not arm \`/loop\`, a timer, a watch, or any other
+   self-poll to check whether a decision arrived, and do not append status lines saying you are still
+   waiting. You never need to poll: a firstmate steer is delivered straight into your composer and
+   wakes you by itself. Self-polling burns budget on no-op turns and is invisible to every durable record.
 
 # Definition of done
 Write your findings to \`$DATA/$ID/report.md\`.
@@ -377,6 +408,39 @@ Keep your branch a clean fast-forward onto the current default branch.
 If the default branch advances, fetch origin and merge its default branch into \`fm/$ID\` additively, never rebase or force, then re-run validation before reporting ready again.
 When it is implemented and committed, append \`done: ready in branch fm/$ID\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate lands it through the guarded fast-forward path and may explicitly push the default branch without a PR.
+EOF
+    ;;
+  adaptive)
+    SETUP2=""
+    RULE1='1. Never push to the default branch (push only your `fm/'"$ID"'` branch). Never merge a PR.'
+    TIER_PLAN=$(fm_tier_checks "$TIER")
+    TIER_LINE=$(fm_tier_summary "$TIER")
+    if [ "$TIER" = fast ]; then
+      ADAPTIVE_LANDING="This tier does NOT require a pull request. If this project's checks only run on a PR, push your branch and open one with \`gh-axi\`, then report \`done: PR {url}\`. Otherwise stop at a clean committed branch and report \`done: ready in branch fm/$ID\`.
+State which of the two you did and why in the same status line."
+    else
+      ADAPTIVE_LANDING="When the checks above pass, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
+Open the PR as soon as your own checks pass; do not wait for CI to finish before reporting, and do not sit and watch it."
+    fi
+    IFS= read -r -d '' DOD <<EOF || true
+# Definition of done
+Delivery contract: mode=adaptive tier=$TIER
+This task ships **adaptive** at the **$TIER** tier: $TIER_LINE.
+Firstmate selected this tier at intake and is accountable for it. Do not silently widen or narrow it.
+
+## Validation you are authorized to run
+$TIER_PLAN
+
+## If validation fails
+You get ONE automatic repair attempt. Fix the failure, re-run only the checks that failed, and continue.
+If it fails a SECOND time, stop: append \`blocked: {what failed, what you tried, what you think it needs}\` and wait.
+Do not enter an open-ended fix loop. A second failure means the task needs a decision, not another attempt.
+
+## Scope discipline
+Fix what your change broke. Do not repair pre-existing failures unrelated to your change - report them in your status line instead.
+If the tier looks wrong for what you actually found (a "fast" change turned out to touch an authorization path), STOP and append \`needs-decision: tier looks wrong - {what you found}\`. Re-classifying is firstmate's call, not yours.
+
+$ADAPTIVE_LANDING
 EOF
     ;;
   *)  # no-mistakes
@@ -453,6 +517,16 @@ $RULE1
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+8. **Never background a long-running validation or pipeline call and then end your turn.**
+   Your harness may offer to run it in the background. If you take that offer and end the turn,
+   nothing is listening when the call returns: the run parks at a gate, nobody answers it, and the
+   task stalls until a supervisor notices and steers you back. A long call that prints nothing is
+   working, not stalled - stay in the turn and read its return, then respond to whatever gate it stopped at.
+9. **While parked or waiting, park SILENTLY.** Do not arm \`/loop\`, a timer, a watch, or any other
+   self-poll to check whether a decision arrived, and do not append status lines saying you are still
+   waiting. You never need to poll: a firstmate steer is delivered straight into your composer and
+   wakes you by itself. Self-polling burns budget on no-op turns and is invisible to every durable
+   record, so nobody can see it happening.
 
 # Project memory
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.
@@ -463,4 +537,4 @@ Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced 
 
 $DOD
 EOF
-echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK})"
+echo "scaffolded: $BRIEF (ship, mode=$MODE${TIER:+ tier=$TIER}; replace {TASK})"

@@ -200,6 +200,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=bin/fm-delivery-mode-lib.sh
 . "$SCRIPT_DIR/fm-delivery-mode-lib.sh"
+# shellcheck source=bin/fm-tier-lib.sh
+. "$SCRIPT_DIR/fm-tier-lib.sh"
 
 usage() {
   # The whole leading comment block, ending at the first line that is not a
@@ -276,6 +278,7 @@ MODEL=
 EFFORT=
 BACKEND_ARG=
 MODE=
+TIER=
 YOLO=
 TRACEPARENT_ARG=
 HARNESS_SET=0
@@ -283,6 +286,7 @@ MODEL_SET=0
 EFFORT_SET=0
 BACKEND_SET=0
 MODE_SET=0
+TIER_SET=0
 YOLO_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
@@ -299,6 +303,7 @@ for a in "$@"; do
       effort) EFFORT=$a; EFFORT_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
       mode) MODE=$a; MODE_SET=1 ;;
+      tier) TIER=$a; TIER_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
       traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
@@ -320,6 +325,8 @@ for a in "$@"; do
     --backend=*) BACKEND_ARG=${a#--backend=}; BACKEND_SET=1 ;;
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
+    --tier) want_value=tier ;;
+    --tier=*) TIER=${a#--tier=}; TIER_SET=1 ;;
     --yolo) want_value=yolo ;;
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
     --traceparent) want_value=traceparent ;;
@@ -377,6 +384,18 @@ else
       exit 1
     }
     fm_delivery_mode_validate "$MODE" "at intake"
+    if [ "$MODE" = adaptive ]; then
+      [ "$TIER_SET" -eq 1 ] || {
+        echo "error: --mode adaptive requires --tier <fast|standard|comprehensive>; classify the task at intake (bin/fm-tier-lib.sh classify \"<description>\") and state the tier and reason to the captain" >&2
+        exit 1
+      }
+      fm_tier_validate "$TIER" "at intake"
+    else
+      [ "$TIER_SET" -eq 0 ] || {
+        echo "error: --tier applies only to --mode adaptive; the other delivery modes carry their own fixed validation contract" >&2
+        exit 1
+      }
+    fi
     case "$YOLO" in
       on|off) ;;
       *) echo "error: --yolo must be on or off (got '$YOLO')" >&2; exit 1 ;;
@@ -384,6 +403,10 @@ else
   else
     [ "$MODE_SET" -eq 0 ] || {
       echo "error: --mode applies only to ship spawns; a scout delivers a report and a secondmate records its own fixed posture" >&2
+      exit 1
+    }
+    [ "$TIER_SET" -eq 0 ] || {
+      echo "error: --tier applies only to ship spawns using --mode adaptive" >&2
       exit 1
     }
     [ "$YOLO_SET" -eq 0 ] || {
@@ -747,6 +770,7 @@ spawn_abort_cleanup() {
             echo "harness=$HARNESS"
             echo "kind=$KIND"
             [ -z "${MODE:-}" ] || echo "mode=$MODE"
+            [ -z "${TIER:-}" ] || echo "tier=$TIER"
             [ -z "${YOLO:-}" ] || echo "yolo=$YOLO"
             echo "tasktmp=${TASK_TMP:-}"
             echo "model=${MODEL:-default}"
@@ -1640,11 +1664,22 @@ else
 fi
 [ -f "$BRIEF" ] || { echo "error: no brief at $BRIEF" >&2; exit 1; }
 
-delivery_rigor_rank() {  # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task mode
+delivery_rigor_rank() {  # <mode> [<tier>] -> 3 (most rigor) .. 1 (least); 0 = not a task mode
+  # adaptive has no single rigor: its tier IS its rigor, so it ranks by tier.
+  # That keeps the "less rigor than the captain's standing posture" notice
+  # meaningful instead of letting every adaptive task read as one fixed level.
   case "$1" in
     no-mistakes) echo 3 ;;
     direct-PR) echo 2 ;;
     local-only) echo 1 ;;
+    adaptive)
+      case "${2:-}" in
+        comprehensive) echo 3 ;;
+        standard) echo 2 ;;
+        fast) echo 1 ;;
+        *) echo 0 ;;
+      esac
+      ;;
     *) echo 0 ;;
   esac
 }
@@ -1662,6 +1697,19 @@ if [ "$KIND" = ship ]; then
     echo "error: delivery mismatch for $ID: the brief says mode=$BRIEF_MODE but this spawn passed --mode $MODE; correct the flag or re-scaffold the brief so the worker's instructions and the task record agree" >&2
     exit 1
   fi
+  # The tier is half of an adaptive task's contract, so it is checked with the
+  # same strictness as the mode: a brief that validates one tier while the task
+  # record claims another is the same drift, one level down.
+  if [ "$MODE" = adaptive ]; then
+    BRIEF_TIER=$(sed -n 's/^Delivery contract: mode=adaptive tier=\([^ ]*\).*$/\1/p' "$BRIEF" | head -n 1)
+    if [ -z "$BRIEF_TIER" ]; then
+      echo "error: $BRIEF is an adaptive ship brief with no tier on its delivery contract line; re-scaffold it with bin/fm-brief.sh --mode adaptive --tier <fast|standard|comprehensive>" >&2
+      exit 1
+    elif [ "$BRIEF_TIER" != "$TIER" ]; then
+      echo "error: validation-tier mismatch for $ID: the brief validates tier=$BRIEF_TIER but this spawn passed --tier $TIER; correct the flag or re-scaffold the brief" >&2
+      exit 1
+    fi
+  fi
   # The registry holds the captain's standing posture, so dropping below it is
   # allowed (a current explicit captain instruction wins) but never silent. An
   # unregistered project resolves to the same no-mistakes standing default, which
@@ -1669,8 +1717,8 @@ if [ "$KIND" = ship ]; then
   # conditional policy is excluded: both of its legs are legitimate classifications.
   STANDING_MODE=$("$FM_ROOT/bin/fm-project-mode.sh" --raw "$PROJ_NAME" 2>/dev/null | cut -d' ' -f1) || STANDING_MODE=
   if [ -n "$STANDING_MODE" ] && [ "$STANDING_MODE" != no-mistakes-prod-only ] \
-     && [ "$(delivery_rigor_rank "$MODE")" -lt "$(delivery_rigor_rank "$STANDING_MODE")" ]; then
-    echo "notice: $ID ships mode=$MODE while the standing posture for $PROJ_NAME is $STANDING_MODE - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
+     && [ "$(delivery_rigor_rank "$MODE" "$TIER")" -lt "$(delivery_rigor_rank "$STANDING_MODE")" ]; then
+    echo "notice: $ID ships mode=$MODE${TIER:+ tier=$TIER} while the standing posture for $PROJ_NAME is $STANDING_MODE - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
   fi
 fi
 
@@ -2643,6 +2691,7 @@ preserve_relaunch_meta() {
   echo "harness=$HARNESS"
   echo "kind=$KIND"
   [ -z "$MODE" ] || echo "mode=$MODE"
+  [ -z "$TIER" ] || echo "tier=$TIER"
   [ -z "$YOLO" ] || echo "yolo=$YOLO"
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
