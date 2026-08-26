@@ -129,7 +129,15 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/captain-communication/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/decision-hold-lifecycle/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/delivery-lifecycle/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -211,6 +219,10 @@
     {
       "path": "VISION.md",
       "audience": "public-product"
+    },
+    {
+      "path": "docs/adaptive-delivery.md",
+      "audience": "maintainer-verification"
     },
     {
       "path": "docs/agent-control.md",
@@ -295,6 +307,10 @@
     {
       "path": "docs/sessionstart-nudge.md",
       "audience": "operator-current"
+    },
+    {
+      "path": "docs/state-layout.md",
+      "audience": "maintainer-architecture"
     },
     {
       "path": "docs/subagent-guard.md",
