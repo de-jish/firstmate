@@ -18,6 +18,33 @@ TEARDOWN="$ROOT/bin/fm-teardown.sh"
 HARNESS="$ROOT/bin/fm-harness.sh"
 TMP_ROOT=$(fm_test_tmproot fm-muse-harness)
 
+# install_renamed_shell <source-shell> <destination>: copy a real shell under a
+# new name, so the process tree carries that name for a detection walk to find.
+#
+# The copy is deliberate and must not become a symlink: these cases exist to pin
+# detection against a genuinely renamed EXECUTABLE, which is the shape muse's
+# installed launcher actually produces when it execs muse-bin-<version>.
+#
+# macOS will not run a plain copy. /bin/bash is an Apple platform binary, and a
+# copy of one living outside the trust cache fails signature validation and is
+# SIGKILLed before it reaches main() - the case then reports an empty harness
+# and looks like a detection bug rather than a fixture that never ran. Ad-hoc
+# re-signing turns the copy into an ordinary local binary and it runs. Linux
+# needs none of this, so the re-sign only happens when the copy actually refuses
+# to execute.
+install_renamed_shell() {  # <source-shell> <destination>
+  local src=$1 dest=$2
+  cp "$src" "$dest"
+  chmod +x "$dest"
+  "$dest" -c 'exit 0' 2>/dev/null && return 0
+  command -v codesign >/dev/null 2>&1 \
+    || fail "renamed copy $dest cannot execute and codesign is unavailable to re-sign it"
+  codesign --force --sign - "$dest" >/dev/null 2>&1 \
+    || fail "could not ad-hoc sign the renamed copy $dest"
+  "$dest" -c 'exit 0' 2>/dev/null \
+    || fail "renamed copy $dest still cannot execute after ad-hoc signing"
+}
+
 # --- session-log fixtures ---------------------------------------------------
 
 # muse_log_metadata <workspace-root>: the first record of every session log,
@@ -97,7 +124,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  cp "$(command -v bash)" "$fakebin/muse-bin-test-version"
+  install_renamed_shell "$(command -v bash)" "$fakebin/muse-bin-test-version"
   cat > "$fakebin/muse" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -166,7 +193,7 @@ test_detects_versioned_process_ancestor() {
   dir="$TMP_ROOT/detect"
   mkdir -p "$dir"
   for bin in muse-bin-0.1.0-R708.1 muse-bin-9.9.9-RZZZ.9 muse; do
-    cp "$(command -v bash)" "$dir/$bin"
+    install_renamed_shell "$(command -v bash)" "$dir/$bin"
     out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
       "$dir/$bin" -c "r=\$(\"$HARNESS\"); printf '%s' \"\$r\"")
     [ "$out" = muse ] || fail "fm-harness.sh under process '$bin' reported '$out', expected muse"
@@ -181,7 +208,7 @@ test_detection_is_anchored() {
   dir="$TMP_ROOT/detect-neg"
   mkdir -p "$dir"
   for bin in musescore amuse notmuse-bin muse-binary muse-bind; do
-    cp "$(command -v bash)" "$dir/$bin"
+    install_renamed_shell "$(command -v bash)" "$dir/$bin"
     out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
       "$dir/$bin" -c "r=\$(\"$HARNESS\"); printf '%s' \"\$r\"")
     [ "$out" != muse ] || fail "fm-harness.sh misdetected unrelated process '$bin' as muse"

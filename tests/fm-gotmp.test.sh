@@ -58,6 +58,15 @@ make_fake_root() {
   ln -s "$ROOT/bin/backends/tmux.sh" "$fake/bin/backends/tmux.sh"
   ln -s "$ROOT/bin/fm-tmux-lib.sh" "$fake/bin/fm-tmux-lib.sh"
   ln -s "$ROOT/bin/fm-composer-lib.sh" "$fake/bin/fm-composer-lib.sh"
+  # The tmux adapter also sources these two, and fm-tmux-lib.sh sources
+  # fm-cursor-lib.sh again. They are easy to forget because the failure does not
+  # look like a missing file: on bash 3.2 (the system bash on macOS) `.` on a
+  # missing file is fatal, and the adapter is only ever reached through a
+  # `2>/dev/null || true` call, so the whole teardown died silently mid-run with
+  # its EXIT trap reporting success. fm_backend_source proves the ADAPTER is
+  # readable, not the siblings the adapter itself pulls in.
+  ln -s "$ROOT/bin/fm-session-lock-lib.sh" "$fake/bin/fm-session-lock-lib.sh"
+  ln -s "$ROOT/bin/fm-cursor-lib.sh" "$fake/bin/fm-cursor-lib.sh"
   ln -s "$ROOT/bin/fm-nm-run-lib.sh" "$fake/bin/fm-nm-run-lib.sh"
   # fm-lock-lib.sh: teardown sources it for the shared lock-staleness proof.
   ln -s "$ROOT/bin/fm-lock-lib.sh" "$fake/bin/fm-lock-lib.sh"
@@ -84,6 +93,14 @@ make_fake_root() {
 exit 0
 SH
   chmod +x "$fake/bin/fm-guard.sh"
+  # fm-remote-job-reap-orphans.sh: stub. Teardown calls it best-effort, so a
+  # missing file only printed noise here, but the fixture should not rely on
+  # that tolerance - and the real sweep must never run against this fake root.
+  cat > "$fake/bin/fm-remote-job-reap-orphans.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fake/bin/fm-remote-job-reap-orphans.sh"
   # fm-fleet-sync.sh: stub (called for non-scout/non-local-only teardowns).
   cat > "$fake/bin/fm-fleet-sync.sh" <<'SH'
 #!/usr/bin/env bash
