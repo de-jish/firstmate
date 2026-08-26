@@ -2782,6 +2782,19 @@ preserve_relaunch_meta() {
     echo "control_relaunch_tx=$FM_CONTROL_RELAUNCH_TX"
   fi
 } > "$SPAWN_META_PATH"
+SPAWN_META_WRITE_STATUS=$?
+# The record is what makes this agent trackable at all: supervision, recovery,
+# and teardown all read it, and a spawn the fleet has no record of is worse
+# than one that never launched. A redirection failure here (the path is a
+# directory, the parent is unwritable, the disk is full) leaves no usable
+# record, and bash 3.2 - the system bash on macOS - does not apply `set -e` to
+# a redirection failure on a compound command, so the check must be explicit
+# rather than inherited. Failing here keeps the abort trap armed, so the
+# backend resources this spawn claimed are released instead of leaked.
+if [ "$SPAWN_META_WRITE_STATUS" -ne 0 ] || [ ! -f "$SPAWN_META_PATH" ]; then
+  echo "error: could not write the task record $SPAWN_META_PATH - refusing to report a spawn the fleet cannot track" >&2
+  exit 1
+fi
 if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_META_PUBLISH_STARTED=1
   mv -f "$SPAWN_META_TMP" "$STATE/$ID.meta"
