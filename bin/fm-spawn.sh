@@ -2895,4 +2895,8 @@ fi
 
 SPAWN_DELIVERY=
 [ -z "$MODE" ] || SPAWN_DELIVERY=" mode=$MODE yolo=$YOLO"
+# Timing instrumentation (bin/fm-timing.sh): the endpoint exists and the brief
+# has been delivered, so this is the moment the worker actually starts. Never
+# allowed to affect the spawn result.
+"$FM_ROOT/bin/fm-timing.sh" record "$ID" worker-started "${MODE:-}${TIER:+/$TIER}" 2>/dev/null || true
 echo "spawned $ID harness=$HARNESS kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT"

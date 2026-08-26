@@ -2549,5 +2549,8 @@ META_LOCK_HELD=0
 if [ "$KIND" != scout ] && [ "$KIND" != secondmate ] && [ "$MODE" != local-only ]; then
   "$FM_ROOT/bin/fm-fleet-sync.sh" "$PROJ" || true
 fi
+# Timing instrumentation: teardown is the task's terminal boundary. Recorded
+# BEFORE the summary line so a completed task always closes its own interval.
+"$FM_ROOT/bin/fm-timing.sh" record "$ID" complete "${MODE:-}" 2>/dev/null || true
 echo "teardown $ID complete (window $T, worktree $WT)"
 backlog_refresh_reminder

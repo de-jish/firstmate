@@ -134,4 +134,7 @@ fm_pr_poll_publish_prepared || {
   echo "error: could not publish PR poll" >&2
   exit 1
 }
+# Timing instrumentation: arming the merge poll is the point the task begins
+# waiting on remote CI and then on a merge decision.
+"$FM_ROOT/bin/fm-timing.sh" record "$ID" ci-wait-start 2>/dev/null || true
 printf 'armed: state/%s.check.sh\n' "$ID"

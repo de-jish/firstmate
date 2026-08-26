@@ -31,19 +31,20 @@
 # Closed set of validation tiers, strongest last.
 FM_TIERS='fast standard comprehensive'
 
+# Membership is tested against FM_TIERS so that variable is the one place the
+# tier set is written; adding a tier here must not require editing a case arm.
 fm_tier_validate() {  # <tier> [context-suffix]
-  local tier=${1:-} context=${2:-}
-  case "$tier" in
-    fast|standard|comprehensive) return 0 ;;
-    '')
-      echo "error: --tier is required for mode=adaptive (one of: fast, standard, comprehensive)${context:+ $context}" >&2
-      return 1
-      ;;
-    *)
-      echo "error: --tier must be one of fast, standard, comprehensive (got '$tier')${context:+ $context}" >&2
-      return 1
-      ;;
-  esac
+  local tier=${1:-} context=${2:-} known list
+  list=$(printf '%s' "$FM_TIERS" | tr ' ' ',')
+  if [ -z "$tier" ]; then
+    echo "error: --tier is required for mode=adaptive (one of: $list)${context:+ $context}" >&2
+    return 1
+  fi
+  for known in $FM_TIERS; do
+    [ "$tier" = "$known" ] && return 0
+  done
+  echo "error: --tier must be one of $list (got '$tier')${context:+ $context}" >&2
+  return 1
 }
 
 # Rank a tier so callers can compare strength without duplicating the order.
