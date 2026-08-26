@@ -1014,12 +1014,22 @@ async function replaceSession(previous, reason) {
   if (String(armed.details.message).includes("shutting down")) {
     throw new Error(`${reason} replacement still refused with shutting-down latch`);
   }
+  // The pid file and the arm log are written by different steps, so waiting on
+  // the pid file and then sampling the log is a race the log loses: the
+  // replacement is genuinely live, its pid= line has simply not landed yet, and
+  // the count reads zero. Wait on the same source the assertion uses, and
+  // assert on what was actually observed rather than re-sampling afterwards.
+  let observed = [];
   await waitFor(() => {
     if (!existsSync(process.env.FM_CHILD_PID_FILE)) return false;
     const child = readFileSync(process.env.FM_CHILD_PID_FILE, "utf8").trim();
-    return child && child !== previousChild && pidAlive(child);
+    if (!child || child === previousChild || !pidAlive(child)) return false;
+    const seen = liveArmPids();
+    if (seen.length !== 1 || seen[0] !== child) return false;
+    observed = seen;
+    return true;
   }, `${reason} replacement child`);
-  const live = liveArmPids();
+  const live = observed;
   if (live.length !== 1) {
     throw new Error(`${reason} expected exactly one live arm child, got ${live.join(",") || "(none)"}`);
   }
