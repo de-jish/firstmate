@@ -1101,6 +1101,33 @@ signal_reason_is_actionable() {  # <file> ...
 # NOT a pure read: fm-crew-state.sh may make a bounded no-mistakes call, so callers
 # run it only on no-verb signal and first-sighting stale paths, never every wake.
 # FM_CREW_STATE_BIN lets tests stub the verdict.
+# A ship task that has reported done, whose PR is recorded, and whose merge poll
+# is ARMED, is waiting on a human merge decision. That wait is legitimate and can
+# last hours. The armed poll is the load-bearing half of the test: it exists only
+# after firstmate handled the `done:` and relayed the PR to the captain, so this
+# can never silence the FIRST surfacing of a finished task - only the repeated
+# wedge alarms that follow it. The poll is also already that task's wake path, so
+# the stale channel is redundant while it is armed.
+crew_awaiting_merge() {  # <id> [state-dir]
+  local id=$1 state=${2:-${STATE:-${FM_STATE_OVERRIDE:-}}}
+  [ -n "$id" ] && [ -n "$state" ] || return 1
+  [ -f "$state/$id.check.sh" ] || return 1
+  grep -q '^pr=' "$state/$id.meta" 2>/dev/null
+}
+
+# Current absorb class for crew <id>, from ONE authoritative crew-state read.
+# FM_CREW_STATE_BIN lets tests stub the verdict.
+#
+# `paused` means "silent because it is WAITING", which the watcher answers with a
+# long recheck cadence instead of a wedge escalation. Three distinct situations
+# earn it, and they are all genuine waits rather than absent workers:
+#   - a declared external-wait pause from the worker itself;
+#   - a no-mistakes run PARKED at a gate (upstream #3055: a correctly parked lane
+#     reached 671 consecutive wedge escalations, each costing a supervision turn);
+#   - a finished ship task awaiting a merge decision (upstream #2968).
+# None of this hides an actionable event: an open keyed decision still surfaces
+# through the durable open-decision fold, which is a separate path from wedge
+# detection, so suppressing the alarm never suppresses the decision.
 crew_absorb_class() {  # <id>
   local id=$1 line state src
   [ -n "$id" ] || { printf 'none'; return; }
@@ -1108,10 +1135,14 @@ crew_absorb_class() {  # <id>
   case "$line" in state:*) ;; *) printf 'none'; return ;; esac
   state=${line#state: }; state=${state%% *}
   if [ "$state" = paused ]; then printf 'paused'; return; fi
+  src=${line#*source: }; src=${src%% *}
   if [ "$state" = working ]; then
-    src=${line#*source: }; src=${src%% *}
     case "$src" in run-step|pane) printf 'working'; return ;; esac
   fi
+  # Only a run-step-sourced park is trusted: that verdict comes from the
+  # pipeline's own step state, not from an idle-looking pane.
+  if [ "$state" = parked ] && [ "$src" = run-step ]; then printf 'paused'; return; fi
+  if [ "$state" = "done" ] && crew_awaiting_merge "$id"; then printf 'paused'; return; fi
   printf 'none'
 }
 
