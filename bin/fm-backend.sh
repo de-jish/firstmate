@@ -593,8 +593,30 @@ fm_backend_expected_label_of_selector() {  # <raw-target> <state-dir>
 # boundaries keep runtime dispatch from importing all five adapter ASTs into
 # every dispatcher consumer while preserving the runtime source operations.
 fm_backend_source() {  # <name>
-  local name=$1
+  local name=$1 adapter
   fm_backend_validate "$name" || return 1
+  # Prove the adapter is readable BEFORE sourcing it.
+  #
+  # Why this guard exists rather than relying on `. file || return 1`: under
+  # `set -e` on bash 3.2 (the system bash on macOS), `.` on a missing file is a
+  # FATAL error that terminates the shell immediately. The `|| return 1` never
+  # runs, so every caller's error handling is bypassed - including
+  # bin/fm-teardown.sh's required herdr preflight, which is written to refuse
+  # loudly and instead had its whole process aborted with the EXIT trap
+  # observing status 0. Teardown therefore reported SUCCESS while having done
+  # nothing and having refused nothing.
+  #
+  # Checking readability first makes the failure an ordinary `return 1` on every
+  # bash version, so each caller's own contract applies again: the destructive
+  # teardown path refuses, while the liveness readers below keep their
+  # deliberate degraded answers. This deliberately does NOT change what
+  # `unknown`/`unverified` mean for ordinary liveness checks - it only ensures
+  # those callers are reached at all.
+  adapter="$FM_BACKEND_LIB_DIR/backends/$name.sh"
+  if [ ! -r "$adapter" ]; then
+    echo "error: backend adapter for '$name' is missing or unreadable: $adapter" >&2
+    return 1
+  fi
   case "$name" in
     tmux)
       if [ -z "${_FM_BACKEND_TMUX_SOURCED:-}" ]; then
