@@ -214,13 +214,48 @@ on iMeetStand's real work, `standard` is the common case and `fast` is rare.
 ## Collecting a real before-and-after
 
 The validation-cost number above is measured. The wall-clock number is not, and
-cannot be without real runs. To get one:
+cannot be without real runs.
 
-1. Leave `bin/fm-timing.sh` recording (it is on by default and costs one
-   appended line per event).
-2. Run several ordinary tasks under `adaptive`.
-3. Compare `bin/fm-timing.sh summary` against the baseline table above.
+### What records itself, and what does not
 
-The comparison that matters is **agent-controlled critical path** and the
-**work/wait split**, not total wall clock: total includes captain latency, which
-is deliberately preserved.
+Recorded with no cooperation from anyone:
+
+| event | recorded by |
+|---|---|
+| `worker-started` | `bin/fm-spawn.sh`, once the endpoint exists and the brief is delivered |
+| `ci-wait-start` | `bin/fm-pr-check.sh`, when the merge poll is armed |
+| `complete` | `bin/fm-teardown.sh`, at the task's terminal boundary |
+
+Not recorded automatically, and therefore NOT comparable from this run alone:
+
+- `intake` and `planned` - firstmate would have to record them at dispatch;
+- `impl-complete` and the per-stage `validate-start`/`validate-end` split -
+  these depend on the worker recording them, and the generated brief does not
+  currently ask it to.
+
+So a five-task run yields the **agent-controlled path** (worker-started to
+CI-green) and the **work/wait split** across it. It does not yield the
+coding-versus-validation breakdown. That breakdown is still recoverable the way
+the baseline recovered it - from commit timestamps - and adaptive tasks make it
+easier, because they produce no `no-mistakes(review)` fix commits to separate out.
+
+### The run
+
+1. Leave `bin/fm-timing.sh` recording. It is on by default and costs one
+   appended line per event; `FM_TIMING=off` disables it.
+2. Run about five ordinary tasks under `adaptive`. Ordinary matters: a run made
+   entirely of trivial or entirely of high-risk work will not compare against a
+   baseline that was mostly ordinary product work.
+3. Read `bin/fm-timing.sh summary`.
+
+### What to compare, and what not to
+
+Compare the **agent-controlled path** and the **work/wait split**.
+
+Do NOT compare total wall clock. Total includes captain latency, which was
+29h26m of the baseline and is deliberately preserved - approval before merge is
+a requirement, not a delay to remove. A run that looks slower on total while the
+agent path shrank is a success, not a regression.
+
+Baseline to beat, per task: 64h57m over twelve tasks is about **5h25m of
+agent-controlled path each**, of which **76% was idle**.
